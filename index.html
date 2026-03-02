@@ -358,7 +358,9 @@
 
 <script>
 const CONFIG = {
-    IMGBB_API_KEY:    '4489066c536d61982b3cb476bf1172b0',
+    // Paste URL Google Apps Script Web App kamu di sini setelah deploy
+    DRIVE_WEBAPP_URL: 'https://script.google.com/macros/s/AKfycbz_ymybtoepKMy6qlJiUZa__blPrLysUzdBbYUmiJBbdgbs7RoAsiansAuWsAT2XOwqdw/exec',
+
     BLE_SERVICE_UUID: '12345678-1234-5678-1234-56789abcdef0',
     BLE_CHAR_UUID:    '12345678-1234-5678-1234-56789abcdef1',
     BLE_DEVICE_NAME:  'ESP32-Medis',
@@ -463,13 +465,16 @@ function toggleLED(warna) {
     kirimLED(warna, ledState[warna]);
 }
 
-// ── Jepret & Upload ──
+// ── Jepret & Upload ke Google Drive ──
 let isUploading = false;
 
 async function jepret() {
     if (isUploading) return;
     if (!kameraAktif || !video.videoWidth) {
         await startCamera(); showToast('Kamera menyala, coba lagi'); return;
+    }
+    if (!CONFIG.DRIVE_WEBAPP_URL || CONFIG.DRIVE_WEBAPP_URL.includes('PASTE_')) {
+        showToast('⚠️ URL Apps Script belum diisi di CONFIG'); return;
     }
 
     isUploading = true;
@@ -478,33 +483,33 @@ async function jepret() {
     const statusEl = document.getElementById('uploadStatus');
     btn.disabled = true;
 
-    // Flash
+    // Flash effect
     flash.classList.add('flash');
     setTimeout(() => flash.classList.remove('flash'), 150);
 
-    // Ambil frame
+    // Ambil frame dari video
     const canvas = document.getElementById('canvasFoto');
     const ctx    = canvas.getContext('2d');
     canvas.width = video.videoWidth; canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0);
-    const imageData = canvas.toDataURL('image/png');
+    const imageData = canvas.toDataURL('image/jpeg', 0.92);
 
-    statusEl.textContent = '⏳ Mengunggah...';
+    statusEl.textContent = '⏳ Menyimpan ke Drive...';
     statusEl.classList.add('visible');
 
     try {
-        const fd = new FormData();
-        fd.append('image', imageData.split(',')[1]);
-        const res  = await fetch(`https://api.imgbb.com/1/upload?key=${CONFIG.IMGBB_API_KEY}`, { method: 'POST', body: fd });
-        const data = await res.json();
-        if (!data.success) throw new Error('ImgBB gagal');
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const payload   = { image: imageData.split(',')[1] };
 
-        const url = data.data.url;
-        statusEl.innerHTML = `✅ <a href="${url}" target="_blank">Lihat foto ↗</a>`;
-        showToast('📸 Foto berhasil disimpan!');
-        setTimeout(() => statusEl.classList.remove('visible'), 5000);
+        const res  = await fetch(CONFIG.DRIVE_WEBAPP_URL, { method: 'POST', body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (data.status !== 'ok') throw new Error(data.message || 'Drive error');
+
+        statusEl.innerHTML = `✅ <a href="${data.url}" target="_blank">Lihat di Drive ↗</a>`;
+        showToast('📸 Foto tersimpan ke Google Drive!');
+        setTimeout(() => statusEl.classList.remove('visible'), 6000);
     } catch (err) {
-        statusEl.textContent = '❌ Gagal upload';
+        statusEl.textContent = '❌ Gagal: ' + err.message;
         showToast('Upload gagal');
         setTimeout(() => statusEl.classList.remove('visible'), 3000);
     } finally {

@@ -62,7 +62,7 @@
 
 <script>
     // ==========================================
-    // 1. LOGIKA KAMERA & SIMPAN DUA ALAM
+    // 1. LOGIKA KAMERA & SIMPAN DUA ALAM (UPDATE ANTI-BLOKIR HP)
     // ==========================================
     async function nyalakanKamera() {
         try {
@@ -93,7 +93,7 @@
         }
 
         // Ubah teks tombol biar pengguna tau lagi proses
-        btn.innerText = "⏳ Memproses Foto...";
+        btn.innerText = "⏳ Memproses & Kompresi...";
         btn.disabled = true;
 
         // A. PROSES JEPRET GAMBAR
@@ -101,26 +101,21 @@
         canvas.height = video.videoHeight;
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        const dataURI = canvas.toDataURL('image/jpeg');
+        // KUNCI 1: Kompresi kualitas gambar jadi 60% (0.6) biar enteng dikirim
+        const dataURI = canvas.toDataURL('image/jpeg', 0.6);
         const base64Data = dataURI.split(',')[1]; 
         const namaFile = "Mata_Pasien_" + new Date().getTime() + ".jpg";
 
-        // B. SIMPAN KE LOKAL (HP/LAPTOP)
-        const link = document.createElement('a');
-        link.href = dataURI;
-        link.download = namaFile;
-        document.body.appendChild(link);
-        link.click(); // Otomatis download ke memori lokal
-        document.body.removeChild(link);
-
-        // C. UPLOAD KE GOOGLE DRIVE
-        btn.innerText = "☁️ Mengirim ke Drive...";
         // URL Jembatan Apps Script kamu
         const scriptURL = "https://script.google.com/macros/s/AKfycbyJgv5Osd4SEvGQF_JuIe0gH0TzTr74SZem_vCX82eBeXZCXckhL-nkGyvFf9rzKxEK/exec";
 
+        // B. UPLOAD KE GOOGLE DRIVE DULU (Biar gak ditabrak proses download HP)
         try {
+            btn.innerText = "☁️ Uploading ke Drive...";
             const response = await fetch(scriptURL, {
                 method: "POST",
+                // KUNCI 2: Headers khusus biar browser HP nggak nge-blokir (CORS)
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify({
                     filename: namaFile,
                     mimeType: "image/jpeg",
@@ -129,16 +124,25 @@
             });
 
             const result = await response.json();
-            
-            if(result.status === "success") {
-                alert("✅ PERFECTO! Foto udah masuk Galeri & nyampe di Google Drive.");
-            } else {
-                alert("⚠️ Foto masuk ke lokal, TAPI gagal ke Drive: " + result.message);
+            if(result.status !== "success") {
+                console.error("Error dari Google:", result.message);
+                alert("⚠️ Gagal upload ke Drive: " + result.message);
             }
         } catch (err) {
-            console.error(err);
-            alert("⚠️ Foto masuk ke lokal, TAPI gagal ngirim ke Drive! (Cek koneksi internet)");
+            console.error("Error Fetch:", err);
+            alert("⚠️ Gagal ngirim ke Drive! (Cek koneksi internet)");
         }
+
+        // C. SIMPAN KE LOKAL (HP/LAPTOP)
+        btn.innerText = "💾 Menyimpan ke Galeri...";
+        const link = document.createElement('a');
+        link.href = dataURI;
+        link.download = namaFile;
+        document.body.appendChild(link);
+        link.click(); // Otomatis download ke memori lokal
+        document.body.removeChild(link);
+
+        alert("✅ Selesai! Cek Galeri HP dan Google Drive kamu.");
 
         // Kembalikan kondisi tombol seperti semula
         btn.innerText = "📸 Jepret & Simpan (Lokal + Drive)";

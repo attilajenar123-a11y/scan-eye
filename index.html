@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scanner Medis ESP32</title>
     <style>
-        /* CSS Buat Tampilan Biar Kece */
+        /* CSS Tampilan Web */
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; text-align: center; }
         .card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 400px; margin: auto; }
         h2 { color: #333; margin-bottom: 5px; }
@@ -23,14 +23,19 @@
         
         #status { margin: 15px 0; font-weight: bold; padding: 10px; border-radius: 5px; background-color: #e9ecef; color: #495057; }
         
-        .image-container { margin: 20px 0; padding: 10px; border: 2px dashed #ccc; border-radius: 10px; background-color: #000; overflow: hidden; }
-        video { width: 100%; max-width: 350px; border-radius: 8px; display: block; margin: auto; }
+        /* Modifikasi CSS biar Zoom-nya rapi nggak keluar kotak */
+        .image-container { margin: 20px 0; padding: 10px; border: 2px dashed #ccc; border-radius: 10px; background-color: #000; overflow: hidden; position: relative; }
+        video { width: 100%; max-width: 350px; border-radius: 8px; display: block; margin: auto; transform-origin: center center; transition: transform 0.2s ease-out; }
+        
+        /* CSS buat slider Zoom */
+        .zoom-control { margin: 15px 0; padding: 10px; background: #e9ecef; border-radius: 8px; text-align: left; }
+        .zoom-control input[type=range] { width: 100%; margin-top: 8px; }
     </style>
 </head>
 <body>
 
 <div class="card">
-    <h2>👁️ Medis Scanner</h2>
+    <h2>👁️ Medis Scanner HD</h2>
     <p class="subtitle">Kontrol Perangkat via Bluetooth</p>
 
     <div id="status">🔴 Status: Belum Terhubung</div>
@@ -52,33 +57,54 @@
     <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
 
     <h3 style="font-size: 16px; color: #555; text-align: left;">Kamera Scanner:</h3>
+    
     <div class="image-container">
         <video id="kameraMata" autoplay playsinline></video>
         <canvas id="canvasFoto" style="display: none;"></canvas>
+    </div>
+
+    <div class="zoom-control">
+        <label>🔍 Zoom: <span id="teksZoom">1.0x</span></label>
+        <input type="range" id="sliderZoom" min="1" max="3" step="0.1" value="1" oninput="aturZoom()">
     </div>
     
     <button id="btnUpload" class="btn-save" onclick="jepretDanSimpan()">📸 Jepret & Simpan (Lokal + Drive)</button>
 </div>
 
 <script>
+    // Variabel buat nyimpen nilai Zoom saat ini
+    let levelZoom = 1;
+
+    // Fungsi pas slider digeser
+    function aturZoom() {
+        levelZoom = document.getElementById('sliderZoom').value;
+        document.getElementById('teksZoom').innerText = levelZoom + "x";
+        // Efek zoom di layar preview
+        document.getElementById('kameraMata').style.transform = `scale(${levelZoom})`;
+    }
+
     // ==========================================
-    // 1. LOGIKA KAMERA & SIMPAN DUA ALAM (UPDATE ANTI-BLOKIR HP)
+    // 1. LOGIKA KAMERA & SIMPAN DUA ALAM 
     // ==========================================
     async function nyalakanKamera() {
         try {
             const video = document.getElementById('kameraMata');
-            // Minta izin kamera (utamakan kamera belakang kalau di HP)
+            
+            // FITUR BARU: Maksa kamera pakai resolusi HD (1080p)
             const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: "environment" } 
+                video: { 
+                    facingMode: "environment",
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 }
+                } 
             });
             video.srcObject = stream;
         } catch (err) {
             console.error("Gagal akses kamera: ", err);
-            alert("Kamera gagal dibuka! Pastikan kamu ngasih izin akses kamera di browser ya.");
+            alert("Kamera gagal dibuka! Pastikan izin akses kamera sudah diberikan.");
         }
     }
 
-    // Nyalakan kamera otomatis saat web dibuka
     window.onload = nyalakanKamera;
 
     async function jepretDanSimpan() {
@@ -92,29 +118,32 @@
             return;
         }
 
-        // Ubah teks tombol biar pengguna tau lagi proses
         btn.innerText = "⏳ Memproses & Kompresi...";
         btn.disabled = true;
 
-        // A. PROSES JEPRET GAMBAR
+        // A. PROSES JEPRET GAMBAR SESUAI ZOOM
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
+        
+        // Sihir Canvas: Nerapin zoom ke hasil foto biar sama kayak di layar
+        context.translate(canvas.width / 2, canvas.height / 2); // Geser titik tengah
+        context.scale(levelZoom, levelZoom); // Lakukan pembesaran (Zoom)
+        context.translate(-canvas.width / 2, -canvas.height / 2); // Balikin titik tengahnya
+
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        // KUNCI 1: Kompresi kualitas gambar jadi 60% (0.6) biar enteng dikirim
-        const dataURI = canvas.toDataURL('image/jpeg', 0.6);
+        // Kompresi 70% biar resolusi HD ini nggak bikin internet HP ngos-ngosan pas ke Drive
+        const dataURI = canvas.toDataURL('image/jpeg', 0.7);
         const base64Data = dataURI.split(',')[1]; 
         const namaFile = "Mata_Pasien_" + new Date().getTime() + ".jpg";
 
-        // URL Jembatan Apps Script kamu
         const scriptURL = "https://script.google.com/macros/s/AKfycbyJgv5Osd4SEvGQF_JuIe0gH0TzTr74SZem_vCX82eBeXZCXckhL-nkGyvFf9rzKxEK/exec";
 
-        // B. UPLOAD KE GOOGLE DRIVE DULU (Biar gak ditabrak proses download HP)
+        // B. UPLOAD KE GOOGLE DRIVE DULU
         try {
             btn.innerText = "☁️ Uploading ke Drive...";
             const response = await fetch(scriptURL, {
                 method: "POST",
-                // KUNCI 2: Headers khusus biar browser HP nggak nge-blokir (CORS)
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify({
                     filename: namaFile,
@@ -139,12 +168,11 @@
         link.href = dataURI;
         link.download = namaFile;
         document.body.appendChild(link);
-        link.click(); // Otomatis download ke memori lokal
+        link.click();
         document.body.removeChild(link);
 
-        alert("✅ Selesai! Cek Galeri HP dan Google Drive kamu.");
+        alert("✅ Selesai! Foto HD (Zoom " + levelZoom + "x) masuk Galeri & Drive.");
 
-        // Kembalikan kondisi tombol seperti semula
         btn.innerText = "📸 Jepret & Simpan (Lokal + Drive)";
         btn.disabled = false;
     }
@@ -158,17 +186,14 @@
 
     async function connectBLE() {
         try {
-            updateStatus("🟡 Mencari perangkat 'ESP32-Medis'...");
+            updateStatus("🟡 Mencari perangkat...");
             bleDevice = await navigator.bluetooth.requestDevice({
                 filters: [{ name: "ESP32-Medis" }],
                 optionalServices: [SERVICE_UUID]
             });
             bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
 
-            updateStatus("🟡 Menghubungkan ke server...");
             const server = await bleDevice.gatt.connect();
-
-            updateStatus("🟡 Menyiapkan layanan...");
             const service = await server.getPrimaryService(SERVICE_UUID);
             bleCharacteristic = await service.getCharacteristic(CHAR_UUID);
 
@@ -176,29 +201,19 @@
             document.getElementById('btnConnect').style.display = 'none';
             document.getElementById('btnDisconnect').style.display = 'block';
         } catch (error) {
-            console.error(error);
             updateStatus("🔴 Gagal konek: " + error.message);
         }
     }
 
     async function kirimPerintah(pesan) {
-        if (!bleCharacteristic) {
-            alert("Bluetooth belum terhubung! Klik 'Hubungkan' dulu.");
-            return;
-        }
+        if (!bleCharacteristic) return alert("Bluetooth belum terhubung!");
         try {
-            const encoder = new TextEncoder();
-            await bleCharacteristic.writeValue(encoder.encode(pesan));
-        } catch (error) {
-            console.error(error);
-            alert("Gagal ngirim perintah!");
-        }
+            await bleCharacteristic.writeValue(new TextEncoder().encode(pesan));
+        } catch (error) { alert("Gagal ngirim perintah!"); }
     }
 
     function disconnectBLE() {
-        if (bleDevice && bleDevice.gatt.connected) {
-            bleDevice.gatt.disconnect();
-        }
+        if (bleDevice && bleDevice.gatt.connected) bleDevice.gatt.disconnect();
     }
 
     function onDisconnected() {
@@ -208,9 +223,7 @@
         document.getElementById('btnDisconnect').style.display = 'none';
     }
 
-    function updateStatus(pesan) {
-        document.getElementById('status').innerText = pesan;
-    }
+    function updateStatus(pesan) { document.getElementById('status').innerText = pesan; }
 </script>
 
 </body>

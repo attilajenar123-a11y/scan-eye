@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scanner Medis ESP32</title>
     <style>
-        /* CSS Buat Tampilan */
+        /* CSS Buat Tampilan Biar Kece */
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; text-align: center; }
         .card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 400px; margin: auto; }
         h2 { color: #333; margin-bottom: 5px; }
@@ -13,6 +13,7 @@
         
         button { width: 100%; padding: 14px; margin: 8px 0; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; }
         button:active { transform: scale(0.98); } 
+        button:disabled { background-color: #cccccc; cursor: not-allowed; }
         
         .btn-connect { background-color: #28a745; color: white; }
         .btn-disconnect { background-color: #dc3545; color: white; display: none; }
@@ -23,7 +24,6 @@
         #status { margin: 15px 0; font-weight: bold; padding: 10px; border-radius: 5px; background-color: #e9ecef; color: #495057; }
         
         .image-container { margin: 20px 0; padding: 10px; border: 2px dashed #ccc; border-radius: 10px; background-color: #000; overflow: hidden; }
-        /* Tag video buat nampilin kamera */
         video { width: 100%; max-width: 350px; border-radius: 8px; display: block; margin: auto; }
     </style>
 </head>
@@ -57,61 +57,92 @@
         <canvas id="canvasFoto" style="display: none;"></canvas>
     </div>
     
-    <button class="btn-save" onclick="simpanKeHP()">📸 Jepret & Simpan Foto</button>
+    <button id="btnUpload" class="btn-save" onclick="jepretDanSimpan()">📸 Jepret & Simpan (Lokal + Drive)</button>
 </div>
 
 <script>
     // ==========================================
-    // 1. LOGIKA KAMERA LOKAL (Laptop/HP)
+    // 1. LOGIKA KAMERA & SIMPAN DUA ALAM
     // ==========================================
     async function nyalakanKamera() {
         try {
             const video = document.getElementById('kameraMata');
-            // Minta izin buka kamera (utamakan kamera belakang kalau di HP)
+            // Minta izin kamera (utamakan kamera belakang kalau di HP)
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: "environment" } 
             });
             video.srcObject = stream;
         } catch (err) {
             console.error("Gagal akses kamera: ", err);
-            alert("Kamera gagal dibuka! Pastikan kamu ngasih izin (Allow) akses kamera di browser ya.");
+            alert("Kamera gagal dibuka! Pastikan kamu ngasih izin akses kamera di browser ya.");
         }
     }
 
-    // Langsung nyalakan kamera begitu web selesai di-load
+    // Nyalakan kamera otomatis saat web dibuka
     window.onload = nyalakanKamera;
 
-    // Fungsi Jepret & Download Foto
-    function simpanKeHP() {
+    async function jepretDanSimpan() {
         const video = document.getElementById('kameraMata');
         const canvas = document.getElementById('canvasFoto');
         const context = canvas.getContext('2d');
+        const btn = document.getElementById('btnUpload'); 
 
-        // Pastikan video udah jalan
         if (!video.videoWidth) {
             alert("Kamera belum siap nih!");
             return;
         }
 
-        // Set ukuran kanvas sama dengan resolusi video
+        // Ubah teks tombol biar pengguna tau lagi proses
+        btn.innerText = "⏳ Memproses Foto...";
+        btn.disabled = true;
+
+        // A. PROSES JEPRET GAMBAR
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
-
-        // Jepret (gambar ulang dari video ke kanvas)
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        // Ubah hasil jepretan jadi file gambar JPG
         const dataURI = canvas.toDataURL('image/jpeg');
+        const base64Data = dataURI.split(',')[1]; 
+        const namaFile = "Mata_Pasien_" + new Date().getTime() + ".jpg";
 
-        // Bikin link download otomatis
+        // B. SIMPAN KE LOKAL (HP/LAPTOP)
         const link = document.createElement('a');
         link.href = dataURI;
-        link.download = 'Mata_Pasien_' + new Date().getTime() + '.jpg';
-        
-        // Eksekusi download
+        link.download = namaFile;
         document.body.appendChild(link);
-        link.click();
+        link.click(); // Otomatis download ke memori lokal
         document.body.removeChild(link);
+
+        // C. UPLOAD KE GOOGLE DRIVE
+        btn.innerText = "☁️ Mengirim ke Drive...";
+        // URL Jembatan Apps Script kamu
+        const scriptURL = "https://script.google.com/macros/s/AKfycbyJgv5Osd4SEvGQF_JuIe0gH0TzTr74SZem_vCX82eBeXZCXckhL-nkGyvFf9rzKxEK/exec";
+
+        try {
+            const response = await fetch(scriptURL, {
+                method: "POST",
+                body: JSON.stringify({
+                    filename: namaFile,
+                    mimeType: "image/jpeg",
+                    base64: base64Data
+                })
+            });
+
+            const result = await response.json();
+            
+            if(result.status === "success") {
+                alert("✅ PERFECTO! Foto udah masuk Galeri & nyampe di Google Drive.");
+            } else {
+                alert("⚠️ Foto masuk ke lokal, TAPI gagal ke Drive: " + result.message);
+            }
+        } catch (err) {
+            console.error(err);
+            alert("⚠️ Foto masuk ke lokal, TAPI gagal ngirim ke Drive! (Cek koneksi internet)");
+        }
+
+        // Kembalikan kondisi tombol seperti semula
+        btn.innerText = "📸 Jepret & Simpan (Lokal + Drive)";
+        btn.disabled = false;
     }
 
     // ==========================================

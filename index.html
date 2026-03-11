@@ -23,16 +23,42 @@
         
         #status { margin: 15px 0; font-weight: bold; padding: 10px; border-radius: 5px; background-color: #e9ecef; color: #495057; }
         
-        /* Modifikasi CSS biar Zoom-nya rapi nggak keluar kotak */
+        /* Modifikasi CSS Zoom */
         .image-container { margin: 20px 0; padding: 10px; border: 2px dashed #ccc; border-radius: 10px; background-color: #000; overflow: hidden; position: relative; }
         video { width: 100%; max-width: 350px; border-radius: 8px; display: block; margin: auto; transform-origin: center center; transition: transform 0.2s ease-out; }
         
         /* CSS buat slider Zoom */
         .zoom-control { margin: 15px 0; padding: 10px; background: #e9ecef; border-radius: 8px; text-align: left; }
         .zoom-control input[type=range] { width: 100%; margin-top: 8px; }
+
+        /* CSS FITUR BARU: Toast Notification (Notif Melayang Anti Pause) */
+        #toast {
+            visibility: hidden;
+            min-width: 250px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 8px;
+            padding: 16px;
+            position: fixed;
+            z-index: 999;
+            left: 50%;
+            bottom: 30px;
+            transform: translateX(-50%);
+            font-size: 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            opacity: 0;
+            transition: opacity 0.5s, visibility 0.5s;
+        }
+        #toast.show {
+            visibility: visible;
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
+
+<div id="toast">Notifikasi muncul di sini</div>
 
 <div class="card">
     <h2>👁️ Medis Scanner HD</h2>
@@ -68,10 +94,21 @@
         <input type="range" id="sliderZoom" min="1" max="3" step="0.1" value="1" oninput="aturZoom()">
     </div>
     
-    <button id="btnUpload" class="btn-save" onclick="jepretDanSimpan()">📸 Jepret & Simpan (Lokal + Drive)</button>
+    <button id="btnUpload" class="btn-save" onclick="jepretDanSimpan()">📸 Jepret & Simpan</button>
 </div>
 
 <script>
+    // FITUR BARU: Fungsi untuk nampilin Notifikasi Melayang (Tanpa Pause)
+    function tampilkanNotif(pesan) {
+        const toast = document.getElementById("toast");
+        toast.innerText = pesan;
+        toast.className = "show";
+        // Hilang otomatis setelah 3,5 detik
+        setTimeout(function() { 
+            toast.className = toast.className.replace("show", ""); 
+        }, 3500);
+    }
+
     // Variabel buat nyimpen nilai Zoom saat ini
     let levelZoom = 1;
 
@@ -79,7 +116,6 @@
     function aturZoom() {
         levelZoom = document.getElementById('sliderZoom').value;
         document.getElementById('teksZoom').innerText = levelZoom + "x";
-        // Efek zoom di layar preview
         document.getElementById('kameraMata').style.transform = `scale(${levelZoom})`;
     }
 
@@ -89,8 +125,6 @@
     async function nyalakanKamera() {
         try {
             const video = document.getElementById('kameraMata');
-            
-            // FITUR BARU: Maksa kamera pakai resolusi HD (1080p)
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { 
                     facingMode: "environment",
@@ -101,7 +135,7 @@
             video.srcObject = stream;
         } catch (err) {
             console.error("Gagal akses kamera: ", err);
-            alert("Kamera gagal dibuka! Pastikan izin akses kamera sudah diberikan.");
+            tampilkanNotif("⚠️ Kamera gagal dibuka! Cek izin browser.");
         }
     }
 
@@ -114,25 +148,24 @@
         const btn = document.getElementById('btnUpload'); 
 
         if (!video.videoWidth) {
-            alert("Kamera belum siap nih!");
+            tampilkanNotif("⚠️ Kamera belum siap nih!");
             return;
         }
 
-        btn.innerText = "⏳ Memproses & Kompresi...";
+        btn.innerText = "⏳ Memproses...";
         btn.disabled = true;
 
         // A. PROSES JEPRET GAMBAR SESUAI ZOOM
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         
-        // Sihir Canvas: Nerapin zoom ke hasil foto biar sama kayak di layar
-        context.translate(canvas.width / 2, canvas.height / 2); // Geser titik tengah
-        context.scale(levelZoom, levelZoom); // Lakukan pembesaran (Zoom)
-        context.translate(-canvas.width / 2, -canvas.height / 2); // Balikin titik tengahnya
+        context.translate(canvas.width / 2, canvas.height / 2); 
+        context.scale(levelZoom, levelZoom); 
+        context.translate(-canvas.width / 2, -canvas.height / 2); 
 
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        // Kompresi 70% biar resolusi HD ini nggak bikin internet HP ngos-ngosan pas ke Drive
+        // Kompresi 70% 
         const dataURI = canvas.toDataURL('image/jpeg', 0.7);
         const base64Data = dataURI.split(',')[1]; 
         const namaFile = "Mata_Pasien_" + new Date().getTime() + ".jpg";
@@ -141,7 +174,7 @@
 
         // B. UPLOAD KE GOOGLE DRIVE DULU
         try {
-            btn.innerText = "☁️ Uploading ke Drive...";
+            btn.innerText = "☁️ Uploading...";
             const response = await fetch(scriptURL, {
                 method: "POST",
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -155,15 +188,15 @@
             const result = await response.json();
             if(result.status !== "success") {
                 console.error("Error dari Google:", result.message);
-                alert("⚠️ Gagal upload ke Drive: " + result.message);
+                tampilkanNotif("⚠️ Gagal upload ke Drive: " + result.message);
             }
         } catch (err) {
             console.error("Error Fetch:", err);
-            alert("⚠️ Gagal ngirim ke Drive! (Cek koneksi internet)");
+            tampilkanNotif("⚠️ Gagal ngirim ke Drive! (Cek internet)");
         }
 
         // C. SIMPAN KE LOKAL (HP/LAPTOP)
-        btn.innerText = "💾 Menyimpan ke Galeri...";
+        btn.innerText = "💾 Menyimpan...";
         const link = document.createElement('a');
         link.href = dataURI;
         link.download = namaFile;
@@ -171,10 +204,15 @@
         link.click();
         document.body.removeChild(link);
 
-        alert("✅ Selesai! Foto HD (Zoom " + levelZoom + "x) masuk Galeri & Drive.");
+        // Munculin Notif Melayang (Nggak pakai Alert lagi!)
+        tampilkanNotif("✅ Sukses! Foto HD masuk Galeri & Drive.");
 
-        btn.innerText = "📸 Jepret & Simpan (Lokal + Drive)";
+        // Kembalikan tombol ke awal
+        btn.innerText = "📸 Jepret & Simpan";
         btn.disabled = false;
+        
+        // JURUS ANTI PAUSE: Paksa video tetep jalan setelah download
+        video.play();
     }
 
     // ==========================================
@@ -200,16 +238,17 @@
             updateStatus("🟢 Terhubung siap pakai!");
             document.getElementById('btnConnect').style.display = 'none';
             document.getElementById('btnDisconnect').style.display = 'block';
+            tampilkanNotif("🔗 Bluetooth Berhasil Terhubung!");
         } catch (error) {
             updateStatus("🔴 Gagal konek: " + error.message);
         }
     }
 
     async function kirimPerintah(pesan) {
-        if (!bleCharacteristic) return alert("Bluetooth belum terhubung!");
+        if (!bleCharacteristic) return tampilkanNotif("⚠️ Bluetooth belum terhubung!");
         try {
             await bleCharacteristic.writeValue(new TextEncoder().encode(pesan));
-        } catch (error) { alert("Gagal ngirim perintah!"); }
+        } catch (error) { tampilkanNotif("⚠️ Gagal ngirim perintah!"); }
     }
 
     function disconnectBLE() {
@@ -221,6 +260,7 @@
         bleCharacteristic = null;
         document.getElementById('btnConnect').style.display = 'block';
         document.getElementById('btnDisconnect').style.display = 'none';
+        tampilkanNotif("❌ Bluetooth Terputus!");
     }
 
     function updateStatus(pesan) { document.getElementById('status').innerText = pesan; }

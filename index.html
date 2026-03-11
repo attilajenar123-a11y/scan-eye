@@ -5,16 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scanner Medis ESP32</title>
     <style>
-        /* CSS Buat Bikin Tampilan Kayak Aplikasi Pro */
+        /* CSS Buat Tampilan */
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; text-align: center; }
         .card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 400px; margin: auto; }
         h2 { color: #333; margin-bottom: 5px; }
         p.subtitle { color: #777; font-size: 14px; margin-top: 0; margin-bottom: 20px; }
         
         button { width: 100%; padding: 14px; margin: 8px 0; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        button:active { transform: scale(0.98); } /* Efek menciut pas dipencet */
+        button:active { transform: scale(0.98); } 
         
-        /* Warna-warni tombol */
         .btn-connect { background-color: #28a745; color: white; }
         .btn-disconnect { background-color: #dc3545; color: white; display: none; }
         .btn-blue { background-color: #007bff; color: white; }
@@ -23,8 +22,9 @@
         
         #status { margin: 15px 0; font-weight: bold; padding: 10px; border-radius: 5px; background-color: #e9ecef; color: #495057; }
         
-        .image-container { margin: 20px 0; padding: 10px; border: 2px dashed #ccc; border-radius: 10px; background-color: #fafafa; }
-        img { width: 100%; max-width: 350px; border-radius: 8px; display: block; margin: auto; }
+        .image-container { margin: 20px 0; padding: 10px; border: 2px dashed #ccc; border-radius: 10px; background-color: #000; overflow: hidden; }
+        /* Tag video buat nampilin kamera */
+        video { width: 100%; max-width: 350px; border-radius: 8px; display: block; margin: auto; }
     </style>
 </head>
 <body>
@@ -34,7 +34,6 @@
     <p class="subtitle">Kontrol Perangkat via Bluetooth</p>
 
     <div id="status">🔴 Status: Belum Terhubung</div>
-
     <button id="btnConnect" class="btn-connect" onclick="connectBLE()">🔗 Hubungkan Bluetooth</button>
     <button id="btnDisconnect" class="btn-disconnect" onclick="disconnectBLE()">❌ Putuskan Koneksi</button>
 
@@ -52,83 +51,121 @@
 
     <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
 
-    <h3 style="font-size: 16px; color: #555; text-align: left;">Preview Kamera:</h3>
+    <h3 style="font-size: 16px; color: #555; text-align: left;">Kamera Scanner:</h3>
     <div class="image-container">
-        <img id="fotoMata" src="https://via.placeholder.com/400x300.png?text=Menunggu+Kamera..." alt="Hasil Kamera">
+        <video id="kameraMata" autoplay playsinline></video>
+        <canvas id="canvasFoto" style="display: none;"></canvas>
     </div>
     
-    <button class="btn-save" onclick="simpanKeHP()">💾 Simpan Foto ke HP</button>
+    <button class="btn-save" onclick="simpanKeHP()">📸 Jepret & Simpan Foto</button>
 </div>
 
 <script>
-    // UUID wajib sama persis dengan kodingan MicroPython di Thonny!
+    // ==========================================
+    // 1. LOGIKA KAMERA LOKAL (Laptop/HP)
+    // ==========================================
+    async function nyalakanKamera() {
+        try {
+            const video = document.getElementById('kameraMata');
+            // Minta izin buka kamera (utamakan kamera belakang kalau di HP)
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment" } 
+            });
+            video.srcObject = stream;
+        } catch (err) {
+            console.error("Gagal akses kamera: ", err);
+            alert("Kamera gagal dibuka! Pastikan kamu ngasih izin (Allow) akses kamera di browser ya.");
+        }
+    }
+
+    // Langsung nyalakan kamera begitu web selesai di-load
+    window.onload = nyalakanKamera;
+
+    // Fungsi Jepret & Download Foto
+    function simpanKeHP() {
+        const video = document.getElementById('kameraMata');
+        const canvas = document.getElementById('canvasFoto');
+        const context = canvas.getContext('2d');
+
+        // Pastikan video udah jalan
+        if (!video.videoWidth) {
+            alert("Kamera belum siap nih!");
+            return;
+        }
+
+        // Set ukuran kanvas sama dengan resolusi video
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        // Jepret (gambar ulang dari video ke kanvas)
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Ubah hasil jepretan jadi file gambar JPG
+        const dataURI = canvas.toDataURL('image/jpeg');
+
+        // Bikin link download otomatis
+        const link = document.createElement('a');
+        link.href = dataURI;
+        link.download = 'Mata_Pasien_' + new Date().getTime() + '.jpg';
+        
+        // Eksekusi download
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    // ==========================================
+    // 2. LOGIKA BLUETOOTH (ESP32)
+    // ==========================================
     const SERVICE_UUID = "12345678-1234-5678-1234-56789abcdef0";
     const CHAR_UUID = "12345678-1234-5678-1234-56789abcdef1";
+    let bleDevice, bleCharacteristic;
 
-    let bleDevice;
-    let bleCharacteristic;
-
-    // Fungsi Utama: Konek ke ESP32
     async function connectBLE() {
         try {
             updateStatus("🟡 Mencari perangkat 'ESP32-Medis'...");
-            
             bleDevice = await navigator.bluetooth.requestDevice({
                 filters: [{ name: "ESP32-Medis" }],
                 optionalServices: [SERVICE_UUID]
             });
-
-            // Deteksi kalau Bluetooth tiba-tiba putus dari alatnya
             bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
 
             updateStatus("🟡 Menghubungkan ke server...");
             const server = await bleDevice.gatt.connect();
 
-            updateStatus("🟡 Mencari layanan medis...");
+            updateStatus("🟡 Menyiapkan layanan...");
             const service = await server.getPrimaryService(SERVICE_UUID);
-
-            updateStatus("🟡 Menyiapkan jalur komunikasi...");
             bleCharacteristic = await service.getCharacteristic(CHAR_UUID);
 
             updateStatus("🟢 Terhubung siap pakai!");
-            
-            // Atur tombol UI
             document.getElementById('btnConnect').style.display = 'none';
             document.getElementById('btnDisconnect').style.display = 'block';
-
         } catch (error) {
             console.error(error);
             updateStatus("🔴 Gagal konek: " + error.message);
         }
     }
 
-    // Fungsi Utama: Ngirim Perintah Nyala/Mati LED
     async function kirimPerintah(pesan) {
         if (!bleCharacteristic) {
-            alert("Bluetooth belum terhubung, Jenar! Klik 'Hubungkan' dulu ya.");
+            alert("Bluetooth belum terhubung! Klik 'Hubungkan' dulu.");
             return;
         }
         try {
-            // Ubah teks perintah ("B:1023") jadi data yang bisa dikirim via Bluetooth
             const encoder = new TextEncoder();
-            const data = encoder.encode(pesan);
-            await bleCharacteristic.writeValue(data);
-            console.log("Berhasil kirim: ", pesan);
+            await bleCharacteristic.writeValue(encoder.encode(pesan));
         } catch (error) {
-            console.error("Gagal kirim data:", error);
-            alert("Gagal ngirim perintah! Coba cek koneksi.");
+            console.error(error);
+            alert("Gagal ngirim perintah!");
         }
     }
 
-    // Fungsi Utama: Putusin Koneksi
     function disconnectBLE() {
-        if (!bleDevice) return;
-        if (bleDevice.gatt.connected) {
+        if (bleDevice && bleDevice.gatt.connected) {
             bleDevice.gatt.disconnect();
         }
     }
 
-    // Fungsi Trigger kalau koneksi putus
     function onDisconnected() {
         updateStatus("🔴 Terputus dari ESP32.");
         bleCharacteristic = null;
@@ -136,31 +173,8 @@
         document.getElementById('btnDisconnect').style.display = 'none';
     }
 
-    // Fungsi Update Teks UI
     function updateStatus(pesan) {
         document.getElementById('status').innerText = pesan;
-    }
-
-    // Fungsi Spesial: Download Gambar ke Galeri HP
-    function simpanKeHP() {
-        const gambar = document.getElementById('fotoMata');
-        
-        // Cek kalau gambarnya kosong atau masih placeholder
-        if (!gambar.src || gambar.src.includes("placeholder")) {
-            alert("Kamera belum nangkap gambar asli nih!");
-            return;
-        }
-
-        const link = document.createElement('a');
-        link.href = gambar.src;
-        
-        // Kasih nama file unik pakai timestamp
-        const waktu = new Date().getTime();
-        link.download = 'Rekam_Medis_' + waktu + '.jpg';
-        
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
     }
 </script>
 

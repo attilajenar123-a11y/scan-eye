@@ -106,6 +106,28 @@ html, body {
 }
 .zoom-badge.show { opacity: 1; }
 
+/* BLE badge pojok kiri atas */
+.ble-badge {
+  position: absolute; top: 14px; left: 14px;
+  background: rgba(0,0,0,0.52); color: rgba(255,255,255,0.8);
+  font-size: 11px; font-weight: 600;
+  padding: 4px 12px; border-radius: 100px;
+  display: flex; align-items: center; gap: 6px;
+  pointer-events: none; z-index: 5;
+  backdrop-filter: blur(4px);
+}
+.ble-badge-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: rgba(255,255,255,0.35);
+  transition: background 0.3s;
+}
+.ble-badge.connected .ble-badge-dot {
+  background: #4ade80;
+  box-shadow: 0 0 0 2px rgba(74,222,128,0.3);
+  animation: pulseDot 2s infinite;
+}
+.ble-badge.connected { color: #c6f6d5; }
+
 /* Pinch hint */
 .pinch-hint {
   position: absolute; bottom: 50px; left: 50%;
@@ -119,18 +141,6 @@ html, body {
 @keyframes fadeHint { to { opacity: 0; } }
 
 canvas { display: none; }
-
-/* ══ WIFI BANNER ══ */
-#wifiBanner {
-  background: #f0fdf4;
-  border-bottom: 1px solid #86efac;
-  padding: 9px 16px;
-  font-size: 12px; color: #166534;
-  text-align: center; line-height: 1.6;
-  flex-shrink: 0; display: none;
-}
-#wifiBanner.show { display: block; }
-#wifiBanner b { color: #14532d; }
 
 /* ══ BOTTOM BAR ══ */
 .bottom {
@@ -155,6 +165,7 @@ canvas { display: none; }
 }
 .led-card:active { opacity: 0.75; }
 .led-card.on { background: #e8f4ff; border-color: #90c8f0; box-shadow: 0 0 10px rgba(90,170,240,0.25); }
+.led-card.disabled-card { opacity: 0.38; pointer-events: none; }
 .led-label { font-size: 13px; font-weight: 500; color: #444; display: none; }
 .led-bulb {
   width: 26px; height: 26px; border-radius: 50%;
@@ -189,8 +200,8 @@ canvas { display: none; }
 .capture-btn:active { transform: scale(0.91); background: #3a9ae0; }
 .capture-btn:disabled { background: #ccc; outline-color: #ccc; box-shadow: none; cursor: not-allowed; }
 
-/* WiFi Connect Button */
-.wifi-btn {
+/* BLE Connect Button (ganti WiFi) */
+.ble-btn {
   cursor: pointer; background: #ebebeb;
   border: 1.5px solid #d5d5d5;
   transition: background 0.2s, border-color 0.2s;
@@ -199,19 +210,19 @@ canvas { display: none; }
   width: 38px; border-radius: 12px;
   padding: 12px 0; min-height: 68px; flex-shrink: 0;
 }
-.wifi-btn:active { opacity: 0.75; }
-.wifi-dot {
+.ble-btn:active { opacity: 0.75; }
+.ble-status-dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: #bbb; transition: background 0.3s, box-shadow 0.3s;
 }
-.wifi-btn svg { opacity: 0.5; transition: opacity 0.2s; }
-.wifi-btn-label { display: none; font-size: 14px; font-weight: 500; color: #444; }
+.ble-btn svg { opacity: 0.5; transition: opacity 0.2s; }
+.ble-btn-label { display: none; font-size: 14px; font-weight: 500; color: #444; }
 
-.wifi-btn.connected  { background: #e8f9f2; border-color: #7dd8b5; }
-.wifi-btn.connected .wifi-dot { background: var(--green); box-shadow: 0 0 0 3px rgba(10,158,110,0.2); animation: pulseDot 2s infinite; }
-.wifi-btn.connected svg { opacity: 0.85; color: var(--green); }
-.wifi-btn.connecting { background: #fffbeb; border-color: #fbbf24; }
-.wifi-btn.connecting .wifi-dot { background: #f59e0b; }
+.ble-btn.connected  { background: #e8f9f2; border-color: #7dd8b5; }
+.ble-btn.connected .ble-status-dot { background: var(--green); box-shadow: 0 0 0 3px rgba(10,158,110,0.2); animation: pulseDot 2s infinite; }
+.ble-btn.connected svg { opacity: 0.85; }
+.ble-btn.connecting { background: #eff6ff; border-color: #93c5fd; }
+.ble-btn.connecting .ble-status-dot { background: #60a5fa; animation: pulseDot 0.8s infinite; }
 
 @keyframes pulseDot {
   0%,100% { box-shadow: 0 0 0 3px rgba(10,158,110,0.25); }
@@ -229,10 +240,10 @@ canvas { display: none; }
   .led-toggle-track::after { width: 18px; height: 18px; top: 4px; left: 4px; }
   .led-card.on .led-toggle-track::after { transform: translateX(22px); }
   .capture-btn { width: 80px; height: 80px; }
-  .wifi-btn { flex-direction: row; gap: 10px; width: auto; min-height: unset; padding: 14px 22px; border-radius: 10px; }
-  .wifi-dot { width: 9px; height: 9px; }
-  .wifi-btn-label { display: block; font-size: 15px; }
-  .wifi-btn svg { display: none; }
+  .ble-btn { flex-direction: row; gap: 10px; width: auto; min-height: unset; padding: 14px 22px; border-radius: 10px; }
+  .ble-status-dot { width: 9px; height: 9px; }
+  .ble-btn-label { display: block; font-size: 15px; }
+  .ble-btn svg { display: none; }
 }
 
 /* ══ TOAST ══ */
@@ -258,11 +269,6 @@ canvas { display: none; }
 
 <div class="app">
 
-  <!-- Banner panduan WiFi -->
-  <div id="wifiBanner">
-    📶 Sambungkan iPhone ke WiFi <b>ESP32-Medis</b> (password: <b>12345678</b>), lalu tap tombol WiFi
-  </div>
-
   <!-- Camera -->
   <div class="cam-wrap" id="camWrap">
     <video id="vid" autoplay playsinline muted></video>
@@ -278,6 +284,13 @@ canvas { display: none; }
 
     <div class="crosshair-wrap"><div class="crosshair-ring"></div></div>
     <div class="flash-overlay" id="flashOverlay"></div>
+
+    <!-- Badge BLE di pojok kiri atas -->
+    <div class="ble-badge" id="bleBadge">
+      <div class="ble-badge-dot"></div>
+      <span id="bleBadgeText">BLE</span>
+    </div>
+
     <div class="zoom-badge" id="zoomBadge">1.0×</div>
     <div class="pinch-hint">Cubit 2 jari untuk zoom · Tap 2× reset</div>
     <div class="upload-pill" id="uploadPill"></div>
@@ -286,12 +299,12 @@ canvas { display: none; }
   <!-- Bottom Bar -->
   <div class="bottom">
     <div class="led-group">
-      <div class="led-card" id="cardBiru" onclick="toggleLED('B')">
+      <div class="led-card disabled-card" id="cardBiru" onclick="toggleLED('B')">
         <span class="led-label">LED Biru</span>
         <div class="led-bulb blue"></div>
         <div class="led-toggle-track"></div>
       </div>
-      <div class="led-card" id="cardPutih" onclick="toggleLED('W')">
+      <div class="led-card disabled-card" id="cardPutih" onclick="toggleLED('W')">
         <span class="led-label">LED Putih</span>
         <div class="led-bulb white"></div>
         <div class="led-toggle-track"></div>
@@ -305,16 +318,14 @@ canvas { display: none; }
       </svg>
     </button>
 
-    <!-- Tombol WiFi (ganti BLE) -->
-    <button class="wifi-btn" id="btnWifi" onclick="connectWifi()">
-      <div class="wifi-dot"></div>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-        <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
-        <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
-        <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
-        <circle cx="12" cy="20" r="1" fill="currentColor"/>
+    <!-- Tombol BLE (ganti WiFi) -->
+    <button class="ble-btn" id="btnBle" onclick="handleBle()">
+      <div class="ble-status-dot"></div>
+      <!-- Ikon Bluetooth -->
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="color:#555;">
+        <path d="M17.71 7.71 12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
       </svg>
-      <span class="wifi-btn-label">WiFi</span>
+      <span class="ble-btn-label" id="bleBtnLabel">Bluetooth</span>
     </button>
   </div>
 
@@ -322,22 +333,23 @@ canvas { display: none; }
 
 <script>
 // ════════════════════════════════════════════════
-// KONFIGURASI
+// KONFIGURASI — UUID harus sama dengan ESP32
 // ════════════════════════════════════════════════
-const CONFIG = {
-  // URL Google Apps Script untuk upload foto ke Drive
-  DRIVE_WEBAPP_URL: 'https://script.google.com/macros/s/AKfycby5KuXspaAEF9LDY9QEU5gcMRH_73H4px6pfkruq3zNdT7Tqy_I5orMzYRwv4ljszAg/exec',
+const SERVICE_UUID = '12345678-1234-5678-1234-56789abcdef0';
+const CHAR_UUID    = '12345678-1234-5678-1234-56789abcdef1';
 
-  // IP ESP32 saat jadi hotspot (selalu 192.168.4.1)
-  ESP32_IP: 'http://192.168.4.1',
-};
+// URL Google Apps Script untuk upload foto ke Drive
+const DRIVE_URL = 'https://script.google.com/macros/s/AKfycby5KuXspaAEF9LDY9QEU5gcMRH_73H4px6pfkruq3zNdT7Tqy_I5orMzYRwv4ljszAg/exec';
 
 // ════════════════════════════════════════════════
 // STATE
 // ════════════════════════════════════════════════
-let esp32Connected = false;
-let ledState       = { B: false, W: false };
-let isUploading    = false, kameraAktif = false;
+let bleDevice    = null;
+let bleChar      = null;
+let bleConnected = false;
+let ledState     = { B: false, W: false };
+let isUploading  = false;
+let kameraAktif  = false;
 let scale = 1, p0dist = 0, p0scale = 1;
 const SMIN = 1, SMAX = 6;
 let badgeTmr, toastTmr;
@@ -347,7 +359,8 @@ let badgeTmr, toastTmr;
 // ════════════════════════════════════════════════
 function showToast(msg) {
   const el = document.getElementById('toast');
-  el.textContent = msg; el.classList.add('show');
+  el.textContent = msg;
+  el.classList.add('show');
   clearTimeout(toastTmr);
   toastTmr = setTimeout(() => el.classList.remove('show'), 2800);
 }
@@ -380,6 +393,7 @@ startCamera();
 camWrap.addEventListener('touchstart', e => {
   if (e.touches.length === 2) { e.preventDefault(); p0dist = dist2(e.touches); p0scale = scale; }
 }, { passive: false });
+
 camWrap.addEventListener('touchmove', e => {
   if (e.touches.length === 2) {
     e.preventDefault();
@@ -387,12 +401,14 @@ camWrap.addEventListener('touchmove', e => {
     if (Math.abs(ns - scale) > 0.02) { scale = ns; applyZoom(true); }
   }
 }, { passive: false });
+
 camWrap.addEventListener('touchend', e => {
   if (e.touches.length < 2) {
     clearTimeout(badgeTmr);
     badgeTmr = setTimeout(() => document.getElementById('zoomBadge').classList.remove('show'), 1800);
   }
 });
+
 let lastTap = 0;
 camWrap.addEventListener('touchend', e => {
   if (e.touches.length > 0) return;
@@ -400,7 +416,10 @@ camWrap.addEventListener('touchend', e => {
   if (now - lastTap < 280) { scale = 1; applyZoom(true); }
   lastTap = now;
 });
-function dist2(t) { return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY); }
+
+function dist2(t) {
+  return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+}
 function applyZoom(show) {
   video.style.transform = `scale(${scale})`;
   const b = document.getElementById('zoomBadge');
@@ -409,69 +428,110 @@ function applyZoom(show) {
 }
 
 // ════════════════════════════════════════════════
-// WIFI — CEK KONEKSI KE ESP32
+// BLUETOOTH — CONNECT / DISCONNECT
 // ════════════════════════════════════════════════
-function setWifiState(state) {
-  const btn = document.getElementById('btnWifi');
-  btn.classList.remove('connected', 'connecting');
-  if (state === 'connected')  btn.classList.add('connected');
-  if (state === 'connecting') btn.classList.add('connecting');
-}
-
-async function connectWifi() {
-  if (esp32Connected) {
-    // Tap lagi = cek ulang koneksi
-    await pingESP32();
+async function handleBle() {
+  if (!navigator.bluetooth) {
+    showToast('Web Bluetooth tidak didukung. Gunakan Chrome Android.');
     return;
   }
-  document.getElementById('wifiBanner').classList.add('show');
-  await pingESP32();
+  if (bleConnected) {
+    // Sudah konek → tap lagi = putuskan
+    if (bleDevice && bleDevice.gatt.connected) bleDevice.gatt.disconnect();
+    return;
+  }
+  await connectBle();
 }
 
-async function pingESP32() {
-  setWifiState('connecting');
-  showToast('🔍 Mencari ESP32-Medis...');
+async function connectBle() {
+  setBleState('connecting');
+  showToast('Mencari ESP32-Medis...');
   try {
-    const res  = await fetch(CONFIG.ESP32_IP + '/status', { signal: AbortSignal.timeout(4000) });
-    const data = await res.json();
-    if (data.status === 'ok') {
-      esp32Connected = true;
-      setWifiState('connected');
-      document.getElementById('wifiBanner').classList.remove('show');
-      showToast('✅ Terhubung ke ESP32-Medis!');
-    }
-  } catch {
-    esp32Connected = false;
-    setWifiState('disconnected');
-    document.getElementById('wifiBanner').classList.add('show');
-    showToast('❌ ESP32 tidak ditemukan — sambungkan ke WiFi ESP32-Medis dulu');
+    bleDevice = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [SERVICE_UUID] }]
+    });
+    bleDevice.addEventListener('gattserverdisconnected', onBleDisconnected);
+
+    const server  = await bleDevice.gatt.connect();
+    const service = await server.getPrimaryService(SERVICE_UUID);
+    bleChar        = await service.getCharacteristic(CHAR_UUID);
+
+    bleConnected = true;
+    setBleState('connected');
+    showToast('Terhubung ke ' + bleDevice.name);
+
+  } catch (e) {
+    bleConnected = false;
+    setBleState('idle');
+    if (e.name !== 'NotFoundError') showToast('BLE gagal: ' + e.message);
+    else showToast('Pencarian dibatalkan');
+  }
+}
+
+function onBleDisconnected() {
+  bleConnected = false;
+  bleChar      = null;
+  setBleState('idle');
+  // Reset LED state visual
+  ledState = { B: false, W: false };
+  document.getElementById('cardBiru').classList.remove('on');
+  document.getElementById('cardPutih').classList.remove('on');
+  showToast('Bluetooth terputus');
+}
+
+function setBleState(state) {
+  const btn    = document.getElementById('btnBle');
+  const badge  = document.getElementById('bleBadge');
+  const label  = document.getElementById('bleBtnLabel');
+  const cardB  = document.getElementById('cardBiru');
+  const cardW  = document.getElementById('cardPutih');
+
+  btn.classList.remove('connected', 'connecting');
+
+  if (state === 'connected') {
+    btn.classList.add('connected');
+    badge.classList.add('connected');
+    document.getElementById('bleBadgeText').textContent = bleDevice ? bleDevice.name : 'BLE';
+    label.textContent = 'Putuskan';
+    // Aktifkan LED card
+    cardB.classList.remove('disabled-card');
+    cardW.classList.remove('disabled-card');
+  } else if (state === 'connecting') {
+    btn.classList.add('connecting');
+    badge.classList.remove('connected');
+    document.getElementById('bleBadgeText').textContent = 'Menghubungkan...';
+    label.textContent = 'Menghubungkan...';
+    cardB.classList.add('disabled-card');
+    cardW.classList.add('disabled-card');
+  } else {
+    badge.classList.remove('connected');
+    document.getElementById('bleBadgeText').textContent = 'BLE';
+    label.textContent = 'Bluetooth';
+    cardB.classList.add('disabled-card');
+    cardW.classList.add('disabled-card');
   }
 }
 
 // ════════════════════════════════════════════════
-// LED — kirim via HTTP POST ke ESP32
+// LED — kirim via BLE WRITE
 // ════════════════════════════════════════════════
 async function kirimLED(cmd) {
-  if (!esp32Connected) {
-    showToast('Sambungkan ke ESP32 dulu');
+  if (!bleChar) {
+    showToast('Sambungkan Bluetooth dulu');
     return;
   }
   try {
-    await fetch(CONFIG.ESP32_IP + '/led', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cmd }),
-      signal: AbortSignal.timeout(3000)
-    });
-  } catch {
-    // Koneksi putus
-    esp32Connected = false;
-    setWifiState('disconnected');
-    showToast('Koneksi ke ESP32 terputus');
+    const encoded = new TextEncoder().encode(cmd);
+    await bleChar.writeValue(encoded);
+  } catch (e) {
+    showToast('Kirim gagal: ' + e.message);
+    // Tandai terputus
+    onBleDisconnected();
   }
 }
 
 function toggleLED(warna) {
+  if (!bleConnected) { showToast('Sambungkan Bluetooth dulu'); return; }
   ledState[warna] = !ledState[warna];
   const cardId = warna === 'B' ? 'cardBiru' : 'cardPutih';
   document.getElementById(cardId).classList.toggle('on', ledState[warna]);
@@ -505,7 +565,7 @@ async function jepret() {
   canvas.width = vw; canvas.height = vh;
   ctx.drawImage(video, (vw - cw) / 2, (vh - ch) / 2, cw, ch, 0, 0, vw, vh);
 
-  // ── Simpan ke Galeri ──
+  // ── Simpan ke Galeri HP ──
   canvas.toBlob(blob => {
     const name = 'medscan_' + ts() + '.jpg';
     const file = new File([blob], name, { type: 'image/jpeg' });
@@ -525,27 +585,29 @@ async function jepret() {
   const imageData = canvas.toDataURL('image/jpeg', 0.92);
   const payload   = { image: imageData.split(',')[1] };
 
-  pill.textContent = '⏳ Menyimpan ke Drive...';
+  pill.textContent = 'Menyimpan ke Drive...';
   pill.classList.add('show');
 
   try {
-    const res  = await fetch(CONFIG.DRIVE_WEBAPP_URL, {
+    const res  = await fetch(DRIVE_URL, {
       method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },  // bypass CORS iOS
       body: JSON.stringify(payload)
     });
     const data = await res.json();
     if (data.status !== 'ok') throw new Error(data.message || 'Drive error');
 
-    pill.innerHTML = `✅ <a href="${data.url}" target="_blank">Lihat di Drive ↗</a>`;
-    showToast('📸 Foto tersimpan ke Google Drive!');
+    pill.innerHTML = `Tersimpan · <a href="${data.url}" target="_blank">Lihat di Drive</a>`;
+    showToast('Foto tersimpan ke Google Drive!');
     setTimeout(() => pill.classList.remove('show'), 6000);
   } catch (err) {
-    pill.textContent = '❌ Gagal: ' + err.message;
+    pill.textContent = 'Gagal: ' + err.message;
     showToast('Upload gagal: ' + err.message);
     setTimeout(() => pill.classList.remove('show'), 4000);
   } finally {
     isUploading  = false;
     btn.disabled = false;
+    video.play();   // anti-freeze kamera setelah jepret
   }
 }
 

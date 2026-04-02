@@ -138,7 +138,7 @@ canvas { display: none; }
 
 /* CSS filter pada video langsung */
 .cam-wrap video.filter-yellow {
-  filter: brightness(1.1) saturate(1.4) hue-rotate(-15deg) contrast(1.05);
+  filter: sepia(1.0) saturate(1.8) hue-rotate(5deg) brightness(1.05);
 }
 
 /* Tombol filter kuning */
@@ -580,9 +580,9 @@ async function jepret() {
     const imgData = ctx.getImageData(0, 0, vw, vh);
     const d = imgData.data;
     for (let i = 0; i < d.length; i += 4) {
-      d[i]     = Math.min(255, d[i]     * 1.1  + 10);
-      d[i + 1] = Math.min(255, d[i + 1] * 1.1  + 10);
-      d[i + 2] = Math.max(0,   d[i + 2] * 0.05 -  5);
+      d[i]     = Math.min(255, d[i]     * 1.4  + 40);
+      d[i + 1] = Math.min(255, d[i + 1] * 1.15 + 20);
+      d[i + 2] = Math.max(0,   d[i + 2] * 0.35 - 40);
     }
     ctx.putImageData(imgData, 0, 0);
   }

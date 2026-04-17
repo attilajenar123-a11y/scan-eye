@@ -282,6 +282,77 @@ canvas { display: none; }
   max-width: 88vw; text-align: center;
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* Modal input pasien */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999; padding: 20px;
+  backdrop-filter: blur(4px);
+}
+.modal-overlay.hidden { display: none; }
+.modal-box {
+  background: white;
+  border-radius: 18px;
+  padding: 24px 20px;
+  width: 100%; max-width: 360px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.modal-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; color: #1a1a1a; }
+.modal-sub   { font-size: 12px; color: #888; margin-bottom: 18px; }
+.modal-label { font-size: 12px; font-weight: 600; color: #444; margin-bottom: 6px; display: block; }
+.modal-input {
+  width: 100%; padding: 11px 14px;
+  border: 1.5px solid #e0e0e0; border-radius: 10px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 14px; color: #1a1a1a;
+  margin-bottom: 14px; outline: none;
+  transition: border-color 0.2s;
+}
+.modal-input:focus { border-color: #5ab4f0; }
+.mata-group { display: flex; gap: 10px; margin-bottom: 18px; }
+.mata-btn {
+  flex: 1; padding: 10px;
+  border: 1.5px solid #e0e0e0; border-radius: 10px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 13px; font-weight: 600;
+  cursor: pointer; background: #f9f9f9; color: #555;
+  transition: all 0.2s;
+}
+.mata-btn.selected { background: #e8f4ff; border-color: #5ab4f0; color: #185FA5; }
+.modal-confirm {
+  width: 100%; padding: 13px;
+  background: #5ab4f0; color: white;
+  border: none; border-radius: 12px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 14px; font-weight: 700;
+  cursor: pointer; transition: background 0.2s;
+}
+.modal-confirm:hover { background: #3a9ae0; }
+.modal-confirm:active { transform: scale(0.98); }
+
+/* Info bar pasien di atas kamera */
+.patient-bar {
+  background: #185FA5; color: white;
+  padding: 8px 16px;
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12px; flex-shrink: 0;
+}
+.patient-bar.hidden { display: none; }
+.patient-name { font-weight: 700; }
+.patient-change { opacity: 0.75; text-decoration: underline; cursor: pointer; font-size: 11px; }
+
+/* Counter foto */
+.foto-counter {
+  position: absolute; top: 14px; left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.52); color: #fff;
+  font-size: 11px; font-weight: 600;
+  padding: 4px 12px; border-radius: 100px;
+  pointer-events: none; z-index: 5;
+  backdrop-filter: blur(4px);
+}
 </style>
 </head>
 <body>
@@ -289,6 +360,28 @@ canvas { display: none; }
 <div id="toast"></div>
 
 <div class="app">
+
+<!-- Modal input data pasien -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box">
+    <div class="modal-title">Data Pasien</div>
+    <div class="modal-sub">Isi sebelum mengambil foto</div>
+    <label class="modal-label">Nama Pasien</label>
+    <input class="modal-input" id="inputNama" type="text" placeholder="Contoh: Budi Santoso" autocomplete="off"/>
+    <label class="modal-label">Pilih Mata</label>
+    <div class="mata-group">
+      <button class="mata-btn selected" id="btnOD" onclick="pilihMata('OD')">Kanan (OD)</button>
+      <button class="mata-btn" id="btnOS" onclick="pilihMata('OS')">Kiri (OS)</button>
+    </div>
+    <button class="modal-confirm" onclick="konfirmasiPasien()">Mulai Pemeriksaan</button>
+  </div>
+</div>
+
+<!-- Info bar pasien -->
+<div class="patient-bar hidden" id="patientBar">
+  <span>Pasien: <span class="patient-name" id="barNama">—</span> | Mata: <span id="barMata">—</span></span>
+  <span class="patient-change" onclick="gantiPasien()">Ganti</span>
+</div>
   <div class="cam-wrap" id="camWrap">
     <video id="vid" autoplay playsinline muted></video>
     <canvas id="cvs"></canvas>
@@ -311,6 +404,7 @@ canvas { display: none; }
 
     <div class="zoom-badge" id="zoomBadge">1.0×</div>
     <div class="pinch-hint">Cubit 2 jari untuk zoom · Tap 2× reset</div>
+    <div class="foto-counter" id="fotoCounter">Foto #1</div>
     <button class="filter-btn" id="filterBtn" onclick="toggleFilter()">
       <div class="filter-dot"></div>
       <span id="filterLabel">Filter</span>
@@ -356,6 +450,61 @@ canvas { display: none; }
 const SERVICE_UUID = '12345678-1234-5678-1234-56789abcdef0';
 const CHAR_UUID    = '12345678-1234-5678-1234-56789abcdef1';
 const DRIVE_URL    = 'https://script.google.com/macros/s/AKfycby5KuXspaAEF9LDY9QEU5gcMRH_73H4px6pfkruq3zNdT7Tqy_I5orMzYRwv4ljszAg/exec';
+
+// ════════════════════════════════════════
+// DATA PASIEN & COUNTER FOTO
+// ════════════════════════════════════════
+let namaPasien  = '';
+let mataPasien  = 'OD';
+let fotoCounter = 1;
+
+function pilihMata(mata) {
+  mataPasien = mata;
+  document.getElementById('btnOD').classList.toggle('selected', mata === 'OD');
+  document.getElementById('btnOS').classList.toggle('selected', mata === 'OS');
+}
+
+function konfirmasiPasien() {
+  const nama = document.getElementById('inputNama').value.trim();
+  if (!nama) {
+    document.getElementById('inputNama').focus();
+    document.getElementById('inputNama').style.borderColor = '#e24b4a';
+    setTimeout(() => document.getElementById('inputNama').style.borderColor = '', 1500);
+    return;
+  }
+  namaPasien = nama;
+  fotoCounter = 1;
+  document.getElementById('modalOverlay').classList.add('hidden');
+  document.getElementById('patientBar').classList.remove('hidden');
+  document.getElementById('barNama').textContent = namaPasien;
+  document.getElementById('barMata').textContent = 'Mata ' + mataPasien;
+  document.getElementById('fotoCounter').textContent = 'Foto #' + fotoCounter;
+}
+
+function gantiPasien() {
+  document.getElementById('inputNama').value = '';
+  document.getElementById('modalOverlay').classList.remove('hidden');
+  document.getElementById('patientBar').classList.add('hidden');
+  namaPasien = '';
+  fotoCounter = 1;
+}
+
+function buatNamaFile() {
+  const now    = new Date();
+  const tahun  = now.getFullYear();
+  const bulan  = String(now.getMonth() + 1).padStart(2, '0');
+  const tgl    = String(now.getDate()).padStart(2, '0');
+  const jam    = String(now.getHours()).padStart(2, '0');
+  const menit  = String(now.getMinutes()).padStart(2, '0');
+  const detik  = String(now.getSeconds()).padStart(2, '0');
+  const tanggal = tahun + bulan + tgl;
+  const waktu   = jam + menit + detik;
+  // Bersihkan nama (hapus karakter tidak valid)
+  const namaClean = namaPasien.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+  const nomorUrut = String(fotoCounter).padStart(3, '0');
+  // Format: tahun_jam_Mata_nama_000
+  return tanggal + '_' + waktu + '_' + mataPasien + '_' + namaClean + '_' + nomorUrut;
+}
 
 // ════════════════════════════════════════
 // STATE
@@ -599,6 +748,12 @@ function toggleLED(warna) {
 // JEPRET + SIMPAN + UPLOAD DRIVE
 // ════════════════════════════════════════
 async function jepret() {
+  // Cek data pasien dulu
+  if (!namaPasien) {
+    document.getElementById('modalOverlay').classList.remove('hidden');
+    showToast('Isi data pasien dulu!');
+    return;
+  }
   if (!kameraAktif || !video.videoWidth) {
     await startCamera(); showToast('Kamera menyala, coba lagi'); return;
   }
@@ -635,7 +790,8 @@ async function jepret() {
   }
 
   // Ambil data gambar sekarang sebelum canvas dipakai lagi
-  const nama     = 'medscan_' + ts() + '.jpg';
+  const namaBase = buatNamaFile();
+  const nama     = namaBase + '.jpg';
   const imageB64 = canvas.toDataURL('image/jpeg', 0.85);
 
   // Simpan ke galeri HP
@@ -656,6 +812,10 @@ async function jepret() {
   // Tombol langsung aktif — tidak nunggu Drive
   video.play();
   showToast('Foto tersimpan! Mengupload ke Drive...');
+
+  // Naikkan counter foto
+  fotoCounter++;
+  document.getElementById('fotoCounter').textContent = 'Foto #' + fotoCounter;
 
   // Upload ke Drive di background (tidak blokir UI)
   uploadBackground(imageB64, nama, pill);
@@ -683,6 +843,7 @@ async function uploadBackground(imageB64, nama, pill) {
 function ts() {
   return new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-');
 }
+// Catatan: nama file sekarang pakai buatNamaFile() bukan ts()
 </script>
 </body>
 </html>

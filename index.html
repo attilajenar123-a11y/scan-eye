@@ -492,18 +492,17 @@ function gantiPasien() {
 function buatNamaFile() {
   const now    = new Date();
   const tahun  = now.getFullYear();
-  const bulan  = String(now.getMonth() + 1).padStart(2, '0');
-  const tgl    = String(now.getDate()).padStart(2, '0');
   const jam    = String(now.getHours()).padStart(2, '0');
   const menit  = String(now.getMinutes()).padStart(2, '0');
-  const detik  = String(now.getSeconds()).padStart(2, '0');
-  const tanggal = tahun + bulan + tgl;
-  const waktu   = jam + menit + detik;
-  // Bersihkan nama (hapus karakter tidak valid)
-  const namaClean = namaPasien.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+  const waktu  = jam + '-' + menit;
+  // Mata: OD = kanan, OS = kiri
+  const mataLabel = mataPasien === 'OD' ? 'kanan' : 'kiri';
+  // Bersihkan nama pasien
+  const namaClean = namaPasien.replace(/[^a-zA-Z0-9 ]/g, '').trim().toLowerCase().replace(/ +/g, '_');
   const nomorUrut = String(fotoCounter).padStart(3, '0');
-  // Format: tahun_jam_Mata_nama_000
-  return tanggal + '_' + waktu + '_' + mataPasien + '_' + namaClean + '_' + nomorUrut;
+  // Format tampilan : 2026/17-09/kanan/nama/001
+  // Untuk nama file : 2026_17-09_kanan_nama_001  (/ diganti _ agar valid)
+  return tahun + '_' + waktu + '_' + mataLabel + '_' + namaClean + '_' + nomorUrut;
 }
 
 // ════════════════════════════════════════

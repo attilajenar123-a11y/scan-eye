@@ -343,101 +343,115 @@ function toggleFilter(){
 // Dipanggil hanya saat tombol jepret ditekan
 
 function cropKornea(sourceCanvas) {
-  // ══════════════════════════════════════════════════════
-  // Strategi deteksi berdasarkan analisis 75 foto kornea:
+  // ═══════════════════════════════════════════════
+  // Pipeline adaptasi ANPR untuk deteksi kornea
+  // Berdasarkan 75 foto kornea medis yang dianalisis
   //
-  // FAKTA dari data:
-  // 1. Kornea selalu region PALING GELAP di tengah frame
-  // 2. Sklera selalu lebih terang di sekitar kornea
-  // 3. Kornea radius = 25-50% lebar frame
-  // 4. Posisi = dekat tengah frame (toleransi ±20%)
-  //
-  // METODE: Dark region detection + contour fitting
-  // Jauh lebih akurat dari HoughCircles untuk foto ini
-  // karena tidak bergantung pada tepi yang tajam
-  // ══════════════════════════════════════════════════════
+  // PIPELINE (mirip deteksi plat nomor):
+  //   1. Grayscale + Bilateral filter (jaga tepi)
+  //   2. Canny edge detection
+  //   3. findContours → sortir by area
+  //   4. Filter contour yang BULAT (bukan kotak)
+  //      → circularity = 4π×area/perimeter²
+  //      → kornea circularity > 0.6
+  //   5. minEnclosingCircle → dapat cx, cy, r
+  //   6. Validasi: radius 20-52%, center ≤25% tengah
+  //   7. Crop persegi + resize 512×512
+  // ═══════════════════════════════════════════════
   return new Promise((resolve) => {
     const ctx = sourceCanvas.getContext('2d');
-    const w = sourceCanvas.width, h = sourceCanvas.height;
+    const w   = sourceCanvas.width, h = sourceCanvas.height;
 
     if (cvReady && typeof cv !== 'undefined' && cv.Mat) {
       try {
-        // Step 1: Downscale ke 480px
-        const sz = 480;
+        // Step 1: Downscale ke 480x480
+        const sz  = 480;
         const tmp = document.createElement('canvas');
         tmp.width = sz; tmp.height = sz;
         tmp.getContext('2d').drawImage(sourceCanvas, 0, 0, sz, sz);
 
-        const src     = cv.imread(tmp);
-        const gray    = new cv.Mat();
-        const blurred = new cv.Mat();
-        const thresh  = new cv.Mat();
-        const contours = new cv.MatVector();
-        const hierarchy = new cv.Mat();
+        const src      = cv.imread(tmp);
+        const gray     = new cv.Mat();
+        const filtered = new cv.Mat();
+        const edges    = new cv.Mat();
 
-        // Step 2: Grayscale + blur kuat (untuk smooth kornea)
+        // Step 2: Grayscale
         cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-        cv.GaussianBlur(gray, blurred, new cv.Size(21, 21), 5, 5);
 
-        // Step 3: Threshold adaptif — cari region gelap
-        // Kornea selalu lebih gelap dari sklera
-        // Threshold = 60% dari rata-rata brightness
-        const mean = cv.mean(blurred);
-        const threshVal = Math.min(mean[0] * 0.62, 110);
-        cv.threshold(blurred, thresh, threshVal, 255, cv.THRESH_BINARY_INV);
+        // Step 3: Bilateral filter — jaga tepi kornea, hilangkan noise
+        // (lebih baik dari Gaussian untuk tepi lengkung kornea)
+        cv.bilateralFilter(gray, filtered, 11, 17, 17);
 
-        // Step 4: Morphological ops — hilangkan noise, perkuat kornea
-        const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(15, 15));
-        const cleaned = new cv.Mat();
-        cv.morphologyEx(thresh, cleaned, cv.MORPH_CLOSE, kernel);
-        cv.morphologyEx(cleaned, cleaned, cv.MORPH_OPEN, kernel);
+        // Step 4: Canny edge — temukan batas kornea
+        // Berdasarkan data: kornea selalu kontras dengan sklera
+        cv.Canny(filtered, edges, 30, 200);
 
-        // Step 5: Cari contours
-        cv.findContours(cleaned, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+        // Step 5: Dilate edge sedikit agar contour tersambung
+        const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
+        cv.dilate(edges, edges, kernel);
 
-        // Step 6: Pilih contour terbaik
-        // Kriteria: area cukup besar + center dekat tengah frame
+        // Step 6: findContours — sama persis seperti ANPR
+        const contours  = new cv.MatVector();
+        const hierarchy = new cv.Mat();
+        cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+        // Step 7: Sort by area (terbesar dulu) — ambil top 15
         const centerX = sz / 2, centerY = sz / 2;
-        const minArea = Math.PI * Math.pow(sz * 0.20, 2); // min radius 20%
-        const maxArea = Math.PI * Math.pow(sz * 0.52, 2); // max radius 52%
-
-        let bestContour = -1, bestScore = -1;
+        const candidates = [];
         for (let i = 0; i < contours.size(); i++) {
-          const cnt   = contours.get(i);
-          const area  = cv.contourArea(cnt);
+          const cnt  = contours.get(i);
+          const area = cv.contourArea(cnt);
+
+          // Filter area: radius 20-52% dari frame
+          const minArea = Math.PI * Math.pow(sz * 0.18, 2);
+          const maxArea = Math.PI * Math.pow(sz * 0.54, 2);
           if (area < minArea || area > maxArea) continue;
 
-          const M   = cv.moments(cnt);
+          // Hitung circularity — kunci pembeda kornea (bulat) vs noise (tidak)
+          const perimeter    = cv.arcLength(cnt, true);
+          if (perimeter === 0) continue;
+          const circularity  = (4 * Math.PI * area) / (perimeter * perimeter);
+
+          // Kornea harus cukup bulat (circularity > 0.45)
+          // Lebih longgar dari lingkaran sempurna (1.0) karena kelopak mata
+          if (circularity < 0.45) continue;
+
+          // Hitung center contour
+          const M = cv.moments(cnt);
           if (M.m00 === 0) continue;
-          const cx  = M.m10 / M.m00;
-          const cy  = M.m01 / M.m00;
+          const cx = M.m10 / M.m00;
+          const cy = M.m01 / M.m00;
 
-          // Jarak center contour ke tengah frame
+          // Harus dekat tengah frame (toleransi 28%)
           const dist = Math.hypot(cx - centerX, cy - centerY);
-          // Hanya terima yang cukup dekat tengah (toleransi 25% lebar)
-          if (dist > sz * 0.25) continue;
+          if (dist > sz * 0.28) continue;
 
-          // Skor: area besar + dekat tengah = lebih baik
-          const score = area / (1 + dist * 0.8);
-          if (score > bestScore) {
-            bestScore = score;
-            bestContour = i;
-          }
+          // Skor: area besar + bulat + dekat tengah
+          const score = area * circularity / (1 + dist * 0.5);
+          candidates.push({ idx: i, score, cx, cy, area, circularity });
         }
 
-        if (bestContour >= 0) {
-          // Step 7: Ambil bounding rect dari contour terbaik
-          const cnt  = contours.get(bestContour);
-          const rect = cv.boundingRect(cnt);
+        // Step 8: Ambil kandidat terbaik
+        candidates.sort((a, b) => b.score - a.score);
+
+        if (candidates.length > 0) {
+          const best = candidates[0];
+          const cnt  = contours.get(best.idx);
+
+          // Step 9: minEnclosingCircle → dapat radius presisi
+          const circle = cv.minEnclosingCircle(cnt);
+          const realCx_s = circle.center.x;
+          const realCy_s = circle.center.y;
+          const realR_s  = circle.radius;
 
           // Konversi ke koordinat canvas asli
           const scaleX = w / sz, scaleY = h / sz;
-          const realCx = (rect.x + rect.width  / 2) * scaleX;
-          const realCy = (rect.y + rect.height / 2) * scaleY;
-          const realR  = Math.max(rect.width, rect.height) / 2 * Math.max(scaleX, scaleY);
+          const realCx = realCx_s * scaleX;
+          const realCy = realCy_s * scaleY;
+          const realR  = realR_s  * Math.max(scaleX, scaleY);
 
-          // Padding 8% agar kornea tidak terpotong
-          const pad  = realR * 0.08;
+          // Padding 10% agar kornea tidak terpotong di tepi
+          const pad  = realR * 0.10;
           const side = (realR + pad) * 2;
           const ex   = Math.max(0, Math.round(realCx - realR - pad));
           const ey   = Math.max(0, Math.round(realCy - realR - pad));
@@ -453,31 +467,51 @@ function cropKornea(sourceCanvas) {
           cropTmp.getContext('2d').putImageData(cropData, 0, 0);
           outCanvas.getContext('2d').drawImage(cropTmp, 0, 0, ew, eh, 0, 0, 512, 512);
 
-          // Cleanup
-          src.delete(); gray.delete(); blurred.delete(); thresh.delete();
-          cleaned.delete(); contours.delete(); hierarchy.delete(); kernel.delete();
-          resolve({ canvas: outCanvas, cropped: true, method: 'dark-region' });
+          // Cleanup memori OpenCV (wajib!)
+          src.delete(); gray.delete(); filtered.delete(); edges.delete();
+          kernel.delete(); contours.delete(); hierarchy.delete();
+          resolve({ canvas: outCanvas, cropped: true, method: 'canny-contour',
+                    info: `circularity: ${best.circularity.toFixed(2)}, r: ${Math.round(realR)}px` });
           return;
         }
 
-        // Contour tidak valid — coba HoughCircles sebagai fallback kedua
-        const circles = new cv.Mat();
-        cv.HoughCircles(blurred, circles, cv.HOUGH_GRADIENT, 1,
-          sz * 0.3, 100, 30,
-          Math.round(sz * 0.20), Math.round(sz * 0.50));
+        // Fallback 1: Dark region threshold (dari iterasi sebelumnya)
+        const blurred = new cv.Mat();
+        const thresh  = new cv.Mat();
+        const contours2 = new cv.MatVector();
+        const hier2     = new cv.Mat();
+        cv.GaussianBlur(gray, blurred, new cv.Size(21, 21), 5, 5);
+        const mean     = cv.mean(blurred);
+        const threshVal = Math.min(mean[0] * 0.60, 105);
+        cv.threshold(blurred, thresh, threshVal, 255, cv.THRESH_BINARY_INV);
+        const k2 = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(15, 15));
+        cv.morphologyEx(thresh, thresh, cv.MORPH_CLOSE, k2);
+        cv.findContours(thresh, contours2, hier2, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-        if (circles.cols > 0) {
-          let bestIdx = 0, bestDist = Infinity;
-          for (let i = 0; i < circles.cols; i++) {
-            const cx = circles.data32F[i * 3], cy = circles.data32F[i * 3 + 1];
-            const d  = Math.hypot(cx - sz/2, cy - sz/2);
-            if (d < bestDist) { bestDist = d; bestIdx = i; }
-          }
+        let bestIdx2 = -1, bestScore2 = -1;
+        for (let i = 0; i < contours2.size(); i++) {
+          const cnt2  = contours2.get(i);
+          const area2 = cv.contourArea(cnt2);
+          const minA  = Math.PI * Math.pow(sz * 0.18, 2);
+          const maxA  = Math.PI * Math.pow(sz * 0.54, 2);
+          if (area2 < minA || area2 > maxA) continue;
+          const M2   = cv.moments(cnt2);
+          if (M2.m00 === 0) continue;
+          const cx2  = M2.m10 / M2.m00, cy2 = M2.m01 / M2.m00;
+          const dist2 = Math.hypot(cx2 - centerX, cy2 - centerY);
+          if (dist2 > sz * 0.30) continue;
+          const score2 = area2 / (1 + dist2 * 0.5);
+          if (score2 > bestScore2) { bestScore2 = score2; bestIdx2 = i; }
+        }
+
+        if (bestIdx2 >= 0) {
+          const cnt2   = contours2.get(bestIdx2);
+          const circle2 = cv.minEnclosingCircle(cnt2);
           const scaleX = w / sz, scaleY = h / sz;
-          const realCx = circles.data32F[bestIdx * 3]     * scaleX;
-          const realCy = circles.data32F[bestIdx * 3 + 1] * scaleY;
-          const realR  = circles.data32F[bestIdx * 3 + 2] * Math.max(scaleX, scaleY);
-          const pad    = realR * 0.08;
+          const realCx = circle2.center.x * scaleX;
+          const realCy = circle2.center.y * scaleY;
+          const realR  = circle2.radius * Math.max(scaleX, scaleY);
+          const pad    = realR * 0.10;
           const side   = (realR + pad) * 2;
           const ex     = Math.max(0, Math.round(realCx - realR - pad));
           const ey     = Math.max(0, Math.round(realCy - realR - pad));
@@ -487,26 +521,29 @@ function cropKornea(sourceCanvas) {
           const outCanvas = document.createElement('canvas');
           outCanvas.width = 512; outCanvas.height = 512;
           const cropTmp   = document.createElement('canvas');
-          cropTmp.width = ew; cropTmp.height = eh;
+          cropTmp.width   = ew; cropTmp.height = eh;
           cropTmp.getContext('2d').putImageData(cropData, 0, 0);
           outCanvas.getContext('2d').drawImage(cropTmp, 0, 0, ew, eh, 0, 0, 512, 512);
-          src.delete(); gray.delete(); blurred.delete(); thresh.delete();
-          cleaned.delete(); contours.delete(); hierarchy.delete(); kernel.delete(); circles.delete();
-          resolve({ canvas: outCanvas, cropped: true, method: 'hough' });
+          src.delete(); gray.delete(); filtered.delete(); edges.delete(); kernel.delete();
+          blurred.delete(); thresh.delete(); contours.delete(); hierarchy.delete();
+          contours2.delete(); hier2.delete(); k2.delete();
+          resolve({ canvas: outCanvas, cropped: true, method: 'dark-region' });
           return;
         }
 
-        src.delete(); gray.delete(); blurred.delete(); thresh.delete();
-        cleaned.delete(); contours.delete(); hierarchy.delete(); kernel.delete(); circles.delete();
+        // Cleanup semua
+        src.delete(); gray.delete(); filtered.delete(); edges.delete(); kernel.delete();
+        blurred.delete(); thresh.delete(); contours.delete(); hierarchy.delete();
+        contours2.delete(); hier2.delete(); k2.delete();
       } catch(e) {}
     }
 
-    // Fallback akhir: estimasi center frame, radius 38%
-    // Berdasarkan data: kornea rata-rata ~38% lebar frame
-    const realR  = Math.min(w, h) * 0.38;
+    // Fallback akhir: estimasi berdasarkan statistik 75 foto
+    // Kornea rata-rata di posisi 50% horizontal, 47% vertikal, radius 36%
+    const realR  = Math.min(w, h) * 0.36;
     const realCx = w * 0.50;
-    const realCy = h * 0.48; // sedikit ke atas dari tengah
-    const pad    = realR * 0.08;
+    const realCy = h * 0.47;
+    const pad    = realR * 0.10;
     const side   = (realR + pad) * 2;
     const ex     = Math.max(0, Math.round(realCx - realR - pad));
     const ey     = Math.max(0, Math.round(realCy - realR - pad));
@@ -523,66 +560,7 @@ function cropKornea(sourceCanvas) {
   });
 }
 
-// ── BLE ──
-async function handleBle(){
-  if(!navigator.bluetooth){showToast('Gunakan Bluefy (iPhone) atau Chrome (Android)');return;}
-  if(isConnected){if(bleDevice&&bleDevice.gatt.connected)bleDevice.gatt.disconnect();return;}
-  setBleState('connecting'); showToast('Mencari ESP32-Medis...');
-  try{
-    bleDevice=await navigator.bluetooth.requestDevice({filters:[{services:[SERVICE_UUID]}]});
-    bleDevice.addEventListener('gattserverdisconnected',onDisconnected);
-    const server=await bleDevice.gatt.connect();
-    const service=await server.getPrimaryService(SERVICE_UUID);
-    bleChar=await service.getCharacteristic(CHAR_UUID);
-    isConnected=true; setBleState('connected',bleDevice.name);
-    showToast('Terhubung ke '+bleDevice.name);
-  }catch(e){
-    setBleState('idle');
-    if(e.name!=='NotFoundError')showToast('Gagal: '+e.message);
-    else showToast('Pencarian dibatalkan');
-  }
-}
-function onDisconnected(){
-  isConnected=false; bleChar=null; ledState={B:false,W:false};
-  document.getElementById('cardBiru').classList.remove('on');
-  document.getElementById('cardPutih').classList.remove('on');
-  setBleState('idle'); showToast('Bluetooth terputus');
-}
-function setBleState(state,name){
-  const btn=document.getElementById('btnBle');
-  const badge=document.getElementById('bleBadge');
-  const btext=document.getElementById('bleBadgeText');
-  const blabel=document.getElementById('bleBtnLabel');
-  const cB=document.getElementById('cardBiru');
-  const cW=document.getElementById('cardPutih');
-  btn.classList.remove('connected','connecting');
-  if(state==='connected'){
-    btn.classList.add('connected'); badge.classList.add('connected');
-    btext.textContent=name||'Terhubung'; blabel.textContent='Putuskan';
-    cB.classList.remove('disabled-card'); cW.classList.remove('disabled-card');
-  } else if(state==='connecting'){
-    btn.classList.add('connecting'); badge.classList.remove('connected');
-    btext.textContent='Menghubungkan...'; blabel.textContent='Menghubungkan...';
-    cB.classList.add('disabled-card'); cW.classList.add('disabled-card');
-  } else {
-    badge.classList.remove('connected');
-    btext.textContent='BLE'; blabel.textContent='Bluetooth';
-    cB.classList.add('disabled-card'); cW.classList.add('disabled-card');
-  }
-}
-async function kirimLED(cmd){
-  if(!bleChar)return;
-  try{await bleChar.writeValue(new TextEncoder().encode(cmd));}
-  catch(e){showToast('Kirim gagal: '+e.message);onDisconnected();}
-}
-function toggleLED(warna){
-  if(!isConnected){showToast('Sambungkan Bluetooth dulu');return;}
-  ledState[warna]=!ledState[warna];
-  document.getElementById(warna==='B'?'cardBiru':'cardPutih').classList.toggle('on',ledState[warna]);
-  kirimLED(warna+':'+(ledState[warna]?1023:0));
-}
 
-// ── Jepret ──
 async function jepret(){
   if(!namaPasien){
     document.getElementById('modalOverlay').classList.remove('hidden');

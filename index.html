@@ -650,6 +650,76 @@ async function uploadBackground(imageB64,nama,pill){
     setTimeout(()=>pill.classList.remove('show'),3000);
   }
 }
+
+// ── BLE ──
+async function handleBle(){
+  if(!navigator.bluetooth){showToast('Gunakan Bluefy (iPhone) atau Chrome (Android)');return;}
+  if(isConnected){if(bleDevice&&bleDevice.gatt.connected)bleDevice.gatt.disconnect();return;}
+  setBleState('connecting'); showToast('Mencari ESP32-Medis...');
+  try{
+    bleDevice=await navigator.bluetooth.requestDevice({filters:[{services:[SERVICE_UUID]}]});
+    bleDevice.addEventListener('gattserverdisconnected',onDisconnected);
+    const server=await bleDevice.gatt.connect();
+    const service=await server.getPrimaryService(SERVICE_UUID);
+    bleChar=await service.getCharacteristic(CHAR_UUID);
+    isConnected=true; setBleState('connected',bleDevice.name);
+    showToast('Terhubung ke '+bleDevice.name);
+  }catch(e){
+    setBleState('idle');
+    if(e.name!=='NotFoundError')showToast('Gagal: '+e.message);
+    else showToast('Pencarian dibatalkan');
+  }
+}
+
+function onDisconnected(){
+  isConnected=false; bleChar=null; ledState={B:false,W:false};
+  document.getElementById('cardBiru').classList.remove('on');
+  document.getElementById('cardPutih').classList.remove('on');
+  setBleState('idle'); showToast('Bluetooth terputus');
+}
+
+function setBleState(state,name){
+  const btn=document.getElementById('btnBle');
+  const badge=document.getElementById('bleBadge');
+  const btext=document.getElementById('bleBadgeText');
+  const blabel=document.getElementById('bleBtnLabel');
+  const cB=document.getElementById('cardBiru');
+  const cW=document.getElementById('cardPutih');
+  btn.classList.remove('connected','connecting');
+  badge.classList.remove('connected');
+  if(state==='connected'){
+    btn.classList.add('connected');
+    badge.classList.add('connected');
+    btext.textContent=name||'Terhubung';
+    blabel.textContent='Putuskan';
+    cB.classList.remove('disabled-card');
+    cW.classList.remove('disabled-card');
+  } else if(state==='connecting'){
+    btn.classList.add('connecting');
+    btext.textContent='Menghubungkan...';
+    blabel.textContent='Menghubungkan...';
+    cB.classList.add('disabled-card');
+    cW.classList.add('disabled-card');
+  } else {
+    btext.textContent='BLE';
+    blabel.textContent='Bluetooth';
+    cB.classList.add('disabled-card');
+    cW.classList.add('disabled-card');
+  }
+}
+
+async function kirimLED(cmd){
+  if(!bleChar)return;
+  try{await bleChar.writeValue(new TextEncoder().encode(cmd));}
+  catch(e){showToast('Kirim gagal: '+e.message);onDisconnected();}
+}
+
+function toggleLED(warna){
+  if(!isConnected){showToast('Sambungkan Bluetooth dulu');return;}
+  ledState[warna]=!ledState[warna];
+  document.getElementById(warna==='B'?'cardBiru':'cardPutih').classList.toggle('on',ledState[warna]);
+  kirimLED(warna+':'+(ledState[warna]?1023:0));
+}
 </script>
 </body>
 </html>

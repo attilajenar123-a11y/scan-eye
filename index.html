@@ -224,16 +224,7 @@ console.log=console.warn=console.info=()=>{};
 setTimeout(() => {
   if (!kameraAktif) startCamera();
 
-// Cek Web Bluetooth saat load
-window.addEventListener('load', () => {
-  if(!navigator.bluetooth){
-    const btn = document.getElementById('btnBle');
-    if(btn){
-      btn.title = 'Web Bluetooth tidak tersedia. Gunakan Bluefy (iPhone) atau Chrome Android';
-      btn.style.opacity = '0.5';
-    }
-  }
-});
+
 }, 2000);
 
 // ── OpenCV state ──
@@ -664,27 +655,28 @@ async function uploadBackground(imageB64,nama,pill){
 
 // ── BLE ──
 async function handleBle(){
-  // Cek Web Bluetooth API tersedia
-  if(!navigator.bluetooth){
-    showToast('Pakai Bluefy (iPhone) / Chrome Android');
-    return;
-  }
   // Jika sudah konek → putuskan
   if(isConnected){
     try{ if(bleDevice&&bleDevice.gatt.connected) bleDevice.gatt.disconnect(); }
     catch(e){}
     return;
   }
+
+  // Cek Bluetooth (lazy check — Bluefy inject SETELAH load)
+  const bt = navigator.bluetooth || window.bluetooth;
+  if(!bt){
+    showToast('Buka di Bluefy (iPhone) atau Chrome Android');
+    return;
+  }
+
   setBleState('connecting');
   showToast('Mencari ESP32-Medis...');
+
   try{
-    // Request device dengan filter service UUID
-    bleDevice = await navigator.bluetooth.requestDevice({
-      filters:[{services:[SERVICE_UUID]}],
-      optionalServices:[SERVICE_UUID]
+    bleDevice = await bt.requestDevice({
+      filters:[{name:'ESP32-Medis'}, {services:[SERVICE_UUID]}]
     });
     bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
-    // Connect ke GATT server
     const server  = await bleDevice.gatt.connect();
     const service = await server.getPrimaryService(SERVICE_UUID);
     bleChar       = await service.getCharacteristic(CHAR_UUID);
@@ -693,11 +685,12 @@ async function handleBle(){
     showToast('Terhubung: ' + bleDevice.name);
   } catch(e){
     setBleState('idle');
-    const msg = e.name === 'NotFoundError'    ? 'Pencarian dibatalkan' :
-                e.name === 'SecurityError'    ? 'Butuh HTTPS / Bluefy' :
-                e.name === 'NetworkError'     ? 'Gagal konek, coba lagi' :
-                e.name === 'NotSupportedError'? 'BLE tidak didukung perangkat ini' :
-                'Error: ' + e.message;
+    const msg = e.name === 'NotFoundError'     ? 'Pencarian dibatalkan' :
+                e.name === 'SecurityError'     ? 'Butuh HTTPS — buka via GitHub Pages' :
+                e.name === 'NetworkError'      ? 'ESP32 tidak ditemukan, coba lagi' :
+                e.name === 'NotSupportedError' ? 'BLE tidak didukung di browser ini' :
+                e.name === 'TypeError'         ? 'Cek UUID di ESP32 sudah benar' :
+                'Error: ' + (e.message||e.name);
     showToast(msg);
   }
 }

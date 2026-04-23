@@ -13,9 +13,9 @@ html,body { width:100%; height:100%; overflow:hidden; background:#f4f5f7; font-f
 .app { display:flex; flex-direction:column; width:100vw; height:100dvh; }
 
 /* ── MODAL ── */
-.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); display:flex; align-items:center; justify-content:center; z-index:9999; padding:20px; backdrop-filter:blur(4px); }
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.45); display:flex; align-items:flex-end; justify-content:center; z-index:9999; padding:0; backdrop-filter:blur(3px); }
 .modal-overlay.hidden { display:none; }
-.modal-box { background:white; border-radius:18px; padding:24px 20px; width:100%; max-width:360px; }
+.modal-box { background:white; border-radius:20px 20px 0 0; padding:20px 20px 36px; width:100%; max-width:100%; }
 .modal-title { font-size:16px; font-weight:700; margin-bottom:4px; }
 .modal-sub { font-size:12px; color:#888; margin-bottom:18px; }
 .modal-label { font-size:12px; font-weight:600; color:#444; margin-bottom:6px; display:block; }
@@ -122,27 +122,24 @@ canvas { display:none; }
 
 <div class="app">
 
-<!-- Modal data pasien -->
-<div class="modal-overlay" id="modalOverlay">
-  <div class="modal-box">
-    <div class="modal-title">Data Pasien</div>
-    <div class="modal-sub">Isi sebelum mengambil foto</div>
+<!-- Modal nama foto — muncul SETELAH foto diambil -->
+<div class="modal-overlay hidden" id="modalOverlay">
+  <div class="modal-box" style="max-width:320px;padding:20px 18px;">
+    <div class="modal-title">Beri nama foto</div>
+    <div class="modal-sub" id="modalPreviewInfo">Foto berhasil diambil</div>
     <label class="modal-label">Nama Pasien</label>
-    <input class="modal-input" id="inputNama" type="text" placeholder="Contoh: Budi Santoso" autocomplete="off"/>
+    <input class="modal-input" id="inputNama" type="text" placeholder="Contoh: Budi Santoso" autocomplete="off" style="margin-bottom:10px;" onkeydown="if(event.key==='Enter')simpanFoto()"/>
     <label class="modal-label">Pilih Mata</label>
-    <div class="mata-group">
+    <div class="mata-group" style="margin-bottom:14px;">
       <button class="mata-btn selected" id="btnOD" onclick="pilihMata('OD')">Kanan (OD)</button>
       <button class="mata-btn" id="btnOS" onclick="pilihMata('OS')">Kiri (OS)</button>
     </div>
-    <button class="modal-confirm" onclick="konfirmasiPasien()">Mulai Pemeriksaan</button>
+    <button class="modal-confirm" onclick="simpanFoto()">💾 Simpan ke Galeri</button>
+    <button onclick="batalSimpan()" style="width:100%;padding:10px;border:none;background:none;color:#888;font-size:13px;cursor:pointer;margin-top:8px;">Buang foto ini</button>
   </div>
 </div>
 
-<!-- Info bar pasien -->
-<div class="patient-bar hidden" id="patientBar">
-  <span>Pasien: <span class="patient-name" id="barNama">—</span> | Mata: <span id="barMata">—</span></span>
-  <span class="patient-change" onclick="gantiPasien()">Ganti</span>
-</div>
+
 
 <!-- Kamera -->
 <div class="cam-wrap" id="camWrap">
@@ -159,7 +156,7 @@ canvas { display:none; }
   <div class="flash-overlay" id="flashOverlay"></div>
   <div class="ble-badge" id="bleBadge"><div class="ble-badge-dot"></div><span id="bleBadgeText">BLE</span></div>
   <div class="zoom-badge" id="zoomBadge">1.0×</div>
-  <div class="foto-counter" id="fotoCounter" style="display:none;">Foto #1</div>
+  <div class="foto-counter" id="fotoCounter">Foto #1</div>
   <div class="pinch-hint">Cubit 2 jari untuk zoom · Tap 2× reset</div>
   <button class="filter-btn" id="filterBtn" onclick="toggleFilter()"><div class="filter-dot"></div><span id="filterLabel">Filter</span></button>
   <div class="upload-pill" id="uploadPill"></div>
@@ -209,7 +206,67 @@ let badgeTmr, toastTmr;
 const SMIN=1, SMAX=6;
 
 // ── Pasien ──
-let namaPasien='', mataPasien='OD', fotoCounter=1;
+let mataPasien='OD', fotoCounter=1;
+let pendingBlob=null;
+
+function pilihMata(mata){
+  mataPasien=mata;
+  document.getElementById('btnOD').classList.toggle('selected',mata==='OD');
+  document.getElementById('btnOS').classList.toggle('selected',mata==='OS');
+}
+
+function buatNamaFile(nama){
+  const now=new Date();
+  const tahun=now.getFullYear();
+  const jam=String(now.getHours()).padStart(2,'0');
+  const menit=String(now.getMinutes()).padStart(2,'0');
+  const mataLabel=mataPasien==='OD'?'kanan':'kiri';
+  const namaClean=(nama||'pasien').replace(/[^a-zA-Z0-9 ]/g,'').trim().toLowerCase().replace(/ +/g,'_')||'pasien';
+  const nomorUrut=String(fotoCounter).padStart(3,'0');
+  return tahun+'_'+jam+'-'+menit+'_'+mataLabel+'_'+namaClean+'_'+nomorUrut;
+}
+
+function tampilModalNama(blob,info){
+  pendingBlob=blob;
+  const input=document.getElementById('inputNama');
+  if(input) input.value='';
+  const infoEl=document.getElementById('modalPreviewInfo');
+  if(infoEl) infoEl.textContent=info||'Foto berhasil diambil';
+  document.getElementById('modalOverlay').classList.remove('hidden');
+  setTimeout(()=>{ if(input) input.focus(); },300);
+}
+
+function simpanFoto(){
+  if(!pendingBlob) return;
+  const nama=(document.getElementById('inputNama').value.trim())||'pasien';
+  const namaFile=buatNamaFile(nama)+'.jpg';
+  document.getElementById('modalOverlay').classList.add('hidden');
+  // Download langsung ke galeri tanpa pop up
+  const url=URL.createObjectURL(pendingBlob);
+  const a=Object.assign(document.createElement('a'),{href:url,download:namaFile});
+  a.style.display='none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); },1000);
+  fotoCounter++;
+  document.getElementById('fotoCounter').textContent='Foto #'+fotoCounter;
+  showToast('✓ '+namaFile);
+  // Upload Drive background
+  const pill=document.getElementById('uploadPill');
+  const reader=new FileReader();
+  reader.onload=()=>{
+    const b64=reader.result.split(',')[1];
+    uploadBackground(b64,namaFile,pill);
+  };
+  reader.readAsDataURL(pendingBlob);
+  pendingBlob=null;
+}
+
+function batalSimpan(){
+  pendingBlob=null;
+  document.getElementById('modalOverlay').classList.add('hidden');
+  showToast('Foto dibuang');
+}
 
 // ── OpenCV ──
 
@@ -255,28 +312,8 @@ function pilihMata(mata) {
   document.getElementById('btnOD').classList.toggle('selected',mata==='OD');
   document.getElementById('btnOS').classList.toggle('selected',mata==='OS');
 }
-function konfirmasiPasien() {
-  const nama=document.getElementById('inputNama').value.trim();
-  if (!nama) {
-    document.getElementById('inputNama').style.borderColor='#e24b4a';
-    setTimeout(()=>document.getElementById('inputNama').style.borderColor='',1500);
-    return;
-  }
-  namaPasien=nama; fotoCounter=1;
-  document.getElementById('modalOverlay').classList.add('hidden');
-  document.getElementById('patientBar').classList.remove('hidden');
-  document.getElementById('barNama').textContent=namaPasien;
-  document.getElementById('barMata').textContent='Mata '+mataPasien;
-  document.getElementById('fotoCounter').style.display='block';
-  document.getElementById('fotoCounter').textContent='Foto #'+fotoCounter;
-}
-function gantiPasien() {
-  document.getElementById('inputNama').value='';
-  document.getElementById('modalOverlay').classList.remove('hidden');
-  document.getElementById('patientBar').classList.add('hidden');
-  document.getElementById('fotoCounter').style.display='none';
-  namaPasien=''; fotoCounter=1;
-}
+
+
 function buatNamaFile() {
   const now=new Date();
   const tahun=now.getFullYear();
@@ -564,10 +601,6 @@ function cropKornea(sourceCanvas) {
 
 
 async function jepret(){
-  if(!namaPasien){
-    document.getElementById('modalOverlay').classList.remove('hidden');
-    showToast('Isi data pasien dulu!'); return;
-  }
   if(!kameraAktif||!video.videoWidth){
     await startCamera(); showToast('Kamera menyala, coba lagi'); return;
   }
@@ -603,26 +636,15 @@ async function jepret(){
 
   // ── Crop kornea dari full frame menggunakan OpenCV ──
   showToast('Memproses kornea...');
-  const nama = buatNamaFile() + '.jpg';
-
   try {
     const result = await cropKornea(canvas);
     const { canvas: outCanvas, cropped } = result;
-    const imageB64 = outCanvas.toDataURL('image/jpeg', 0.92);
-
-    // Simpan ke galeri
+        // Tampilkan bottom sheet → isi nama → simpan ke galeri otomatis
     outCanvas.toBlob(blob => {
-      const file = new File([blob], nama, {type:'image/jpeg'});
-      if (typeof navigator.share === 'function') {
-        try {
-          const ok = !navigator.canShare || navigator.canShare({files:[file]});
-          if (ok) { navigator.share({files:[file], title:'ScanCornea'}).catch(()=>{}); return; }
-        } catch(_) {}
-      }
-      const url = URL.createObjectURL(blob);
-      const a   = Object.assign(document.createElement('a'), {href:url, download:nama});
-      document.body.appendChild(a); a.click();
-      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 500);
+      const info = cropped
+        ? (result.method==='canny-contour'?'✓ Kornea terdeteksi presisi':'✓ Kornea terdeteksi')
+        : 'Foto penuh tersimpan';
+      tampilModalNama(blob, info);
     }, 'image/jpeg', 0.92);
 
     video.play();

@@ -7,809 +7,605 @@
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady()" onerror="onOpenCvError()"></script>
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-:root { --white:#fff; --gray:#d8dce2; --blue:#5ab4f0; --green:#0a9e6e; --bottom-h:160px; }
-html,body { width:100%; height:100%; overflow:hidden; background:#f4f5f7; font-family:'Plus Jakarta Sans',sans-serif; }
+* { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+:root { --blue:#5ab4f0; --green:#0a9e6e; --gray:#d8dce2; --bottom-h:160px; }
+html,body { width:100%; height:100%; overflow:hidden; background:#1a1a1a; font-family:'Plus Jakarta Sans',sans-serif; }
+
+/* ── MODAL BOTTOM SHEET ── */
+#modalSheet {
+  position:fixed; inset:0; z-index:99999;
+  display:flex; align-items:flex-end; justify-content:center;
+  background:rgba(0,0,0,0.5);
+  visibility:hidden; opacity:0;
+  transition:opacity 0.25s, visibility 0.25s;
+}
+#modalSheet.show { visibility:visible; opacity:1; }
+#modalSheet .sheet {
+  background:white; width:100%;
+  border-radius:20px 20px 0 0;
+  padding:24px 20px 44px;
+  transform:translateY(100%);
+  transition:transform 0.3s cubic-bezier(0.32,0.72,0,1);
+}
+#modalSheet.show .sheet { transform:translateY(0); }
+.sheet-handle { width:40px; height:4px; background:#e0e0e0; border-radius:2px; margin:0 auto 18px; }
+.sheet-title { font-size:16px; font-weight:700; margin-bottom:4px; }
+.sheet-sub { font-size:12px; color:#22c55e; margin-bottom:16px; font-weight:500; }
+.sheet-sub.normal { color:#888; }
+.sheet-label { font-size:12px; font-weight:600; color:#444; margin-bottom:6px; display:block; }
+.sheet-input {
+  width:100%; padding:13px 14px;
+  border:1.5px solid #e0e0e0; border-radius:12px;
+  font-family:'Plus Jakarta Sans',sans-serif;
+  font-size:15px; color:#1a1a1a;
+  margin-bottom:12px; outline:none;
+  -webkit-appearance:none;
+}
+.sheet-input:focus { border-color:var(--blue); }
+.mata-row { display:flex; gap:10px; margin-bottom:16px; }
+.mata-btn {
+  flex:1; padding:11px;
+  border:1.5px solid #e0e0e0; border-radius:12px;
+  font-family:'Plus Jakarta Sans',sans-serif;
+  font-size:13px; font-weight:600;
+  background:#f9f9f9; color:#666;
+  cursor:pointer;
+}
+.mata-btn.active { background:#e8f4ff; border-color:var(--blue); color:#185FA5; }
+.btn-save {
+  width:100%; padding:15px;
+  background:var(--blue); color:white;
+  border:none; border-radius:14px;
+  font-family:'Plus Jakarta Sans',sans-serif;
+  font-size:15px; font-weight:700;
+  cursor:pointer; margin-bottom:8px;
+  -webkit-appearance:none;
+}
+.btn-save:active { opacity:0.85; }
+.btn-discard {
+  width:100%; padding:10px;
+  background:none; border:none;
+  font-size:13px; color:#aaa;
+  cursor:pointer;
+  -webkit-appearance:none;
+}
+
+/* ── APP LAYOUT ── */
 .app { display:flex; flex-direction:column; width:100vw; height:100dvh; }
 
-/* ── MODAL ── */
-.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.45); display:flex; align-items:flex-end; justify-content:center; z-index:9999; padding:0; backdrop-filter:blur(3px); touch-action:auto; pointer-events:auto; }
-.modal-overlay.hidden { display:none; }
-.modal-box { background:white; border-radius:20px 20px 0 0; padding:20px 20px 40px; width:100%; max-width:100%; overflow:visible; -webkit-overflow-scrolling:touch; touch-action:auto; pointer-events:auto; }
-.modal-title { font-size:16px; font-weight:700; margin-bottom:4px; }
-.modal-sub { font-size:12px; color:#888; margin-bottom:18px; }
-.modal-label { font-size:12px; font-weight:600; color:#444; margin-bottom:6px; display:block; }
-.modal-input { width:100%; padding:11px 14px; border:1.5px solid #e0e0e0; border-radius:10px; font-family:'Plus Jakarta Sans',sans-serif; font-size:14px; margin-bottom:14px; outline:none; }
-.modal-input:focus { border-color:#5ab4f0; }
-.mata-group { display:flex; gap:10px; margin-bottom:18px; }
-.mata-btn { flex:1; padding:10px; border:1.5px solid #e0e0e0; border-radius:10px; font-family:'Plus Jakarta Sans',sans-serif; font-size:13px; font-weight:600; cursor:pointer; background:#f9f9f9; color:#555; transition:all 0.2s; }
-.mata-btn.selected { background:#e8f4ff; border-color:#5ab4f0; color:#185FA5; }
-.modal-confirm { width:100%; padding:16px; background:#5ab4f0; color:white; border:none; border-radius:12px; font-family:'Plus Jakarta Sans',sans-serif; font-size:15px; font-weight:700; cursor:pointer; -webkit-tap-highlight-color:transparent; touch-action:manipulation; display:block; }
-.modal-confirm:active { transform:scale(0.98); }
-
-/* ── PATIENT BAR ── */
-.patient-bar { background:#185FA5; color:white; padding:8px 16px; display:flex; align-items:center; justify-content:space-between; font-size:12px; flex-shrink:0; }
-.patient-bar.hidden { display:none; }
-.patient-name { font-weight:700; }
-.patient-change { opacity:0.75; text-decoration:underline; cursor:pointer; font-size:11px; }
-
 /* ── KAMERA ── */
-.cam-wrap { flex:1; position:relative; background:#d0d4da; overflow:hidden; touch-action:none; }
-.cam-wrap video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform-origin:center center; will-change:transform; pointer-events:none; }
-.cam-idle { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; background:#d4d4d4; }
-.cam-idle svg { opacity:0.35; }
-.cam-idle p { font-size:14px; color:#888; font-weight:500; }
-.crosshair-wrap { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; opacity:0; transition:opacity 0.4s; }
-.cam-on .crosshair-wrap { opacity:1; }
-.crosshair-ring { width:130px; height:130px; border-radius:50%; border:2px solid rgba(255,255,255,0.78); position:relative; }
-.crosshair-ring::before,.crosshair-ring::after { content:''; position:absolute; background:rgba(255,255,255,0.7); }
-.crosshair-ring::before { width:1px; height:22px; top:-26px; left:50%; transform:translateX(-50%); }
-.crosshair-ring::after { height:1px; width:22px; left:-26px; top:50%; transform:translateY(-50%); }
+.cam-wrap { flex:1; position:relative; background:#111; overflow:hidden; touch-action:none; }
+video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform-origin:center; }
+.cam-idle { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; }
+.cam-idle svg { opacity:0.3; }
+.cam-idle p { font-size:14px; color:#666; }
 .flash-overlay { position:absolute; inset:0; background:white; opacity:0; pointer-events:none; transition:opacity 0.05s; }
-.flash-overlay.flash { opacity:0.85; }
-.upload-pill { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.58); color:white; font-size:13px; font-weight:500; padding:7px 18px; border-radius:99px; opacity:0; transition:opacity 0.3s; pointer-events:none; white-space:nowrap; backdrop-filter:blur(8px); max-width:90vw; text-align:center; }
-.upload-pill.show { opacity:1; pointer-events:auto; }
-.upload-pill a { color:#7dd8f0; text-decoration:none; font-weight:600; }
-.zoom-badge { position:absolute; top:14px; right:14px; background:rgba(0,0,0,0.52); color:#fff; font-size:12px; font-weight:700; padding:4px 12px; border-radius:100px; opacity:0; transition:opacity 0.2s; pointer-events:none; z-index:5; }
-.zoom-badge.show { opacity:1; }
-.ble-badge { position:absolute; top:14px; left:14px; background:rgba(0,0,0,0.52); color:rgba(255,255,255,0.8); font-size:11px; font-weight:600; padding:4px 12px; border-radius:100px; display:flex; align-items:center; gap:6px; pointer-events:none; z-index:5; }
-.ble-badge-dot { width:6px; height:6px; border-radius:50%; background:rgba(255,255,255,0.35); transition:background 0.3s; }
-.ble-badge.connected { color:#c6f6d5; }
-.ble-badge.connected .ble-badge-dot { background:#4ade80; animation:pulseDot 2s infinite; }
-.pinch-hint { position:absolute; bottom:80px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.42); color:rgba(255,255,255,0.85); font-size:11px; padding:5px 14px; border-radius:100px; pointer-events:none; white-space:nowrap; display:none; backdrop-filter:blur(6px); }
-.cam-on .pinch-hint { display:block; animation:fadeHint 3s forwards 2.5s; }
-.foto-counter { position:absolute; top:14px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.52); color:#fff; font-size:11px; font-weight:600; padding:4px 12px; border-radius:100px; pointer-events:none; z-index:5; }
-
-
-
-/* Filter button */
-.filter-btn { position:absolute; bottom:14px; right:14px; background:rgba(0,0,0,0.52); border:1.5px solid rgba(255,255,255,0.2); border-radius:20px; color:rgba(255,255,255,0.8); font-size:11px; font-weight:600; padding:5px 12px; cursor:pointer; display:flex; align-items:center; gap:6px; backdrop-filter:blur(4px); z-index:5; }
-.filter-btn.on { background:rgba(234,179,8,0.35); border-color:rgba(234,179,8,0.6); color:#fef08a; }
-.filter-dot { width:8px; height:8px; border-radius:50%; background:rgba(255,255,255,0.4); }
+.flash-overlay.flash { opacity:0.9; }
+.crosshair-wrap { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+.crosshair-ring { width:130px; height:130px; border-radius:50%; border:2px solid rgba(255,255,255,0.6); }
+.zoom-badge { position:absolute; top:14px; right:14px; background:rgba(0,0,0,0.5); color:white; font-size:12px; font-weight:700; padding:4px 12px; border-radius:100px; display:none; }
+.ble-badge { position:absolute; top:14px; left:14px; background:rgba(0,0,0,0.5); color:rgba(255,255,255,0.8); font-size:11px; font-weight:600; padding:4px 12px; border-radius:100px; display:flex; align-items:center; gap:6px; pointer-events:none; }
+.ble-dot { width:6px; height:6px; border-radius:50%; background:rgba(255,255,255,0.3); }
+.ble-badge.on .ble-dot { background:#4ade80; }
+.foto-counter { position:absolute; top:14px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.5); color:white; font-size:11px; font-weight:600; padding:4px 12px; border-radius:100px; pointer-events:none; }
+.upload-pill { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.6); color:white; font-size:13px; padding:7px 18px; border-radius:99px; opacity:0; transition:opacity 0.3s; pointer-events:none; white-space:nowrap; }
+.upload-pill.show { opacity:1; }
+.upload-pill a { color:#7dd8f0; text-decoration:none; }
+.filter-btn { position:absolute; bottom:14px; right:14px; background:rgba(0,0,0,0.5); border:1.5px solid rgba(255,255,255,0.2); border-radius:20px; color:rgba(255,255,255,0.8); font-size:11px; font-weight:600; padding:5px 12px; cursor:pointer; display:flex; align-items:center; gap:6px; z-index:5; }
+.filter-btn.on { background:rgba(234,179,8,0.3); border-color:rgba(234,179,8,0.6); color:#fef08a; }
+.filter-dot { width:7px; height:7px; border-radius:50%; background:rgba(255,255,255,0.4); }
 .filter-btn.on .filter-dot { background:#facc15; }
-
+video.filter-on { filter:sepia(1) saturate(1.8) hue-rotate(5deg) brightness(1.05); }
 canvas { display:none; }
-@keyframes fadeHint { to { opacity:0; } }
 @keyframes pulseDot { 0%,100%{box-shadow:0 0 0 3px rgba(74,222,128,0.25)} 50%{box-shadow:0 0 0 6px rgba(74,222,128,0)} }
+.ble-badge.on .ble-dot { animation:pulseDot 2s infinite; }
 
 /* ── BOTTOM BAR ── */
-.bottom { height:var(--bottom-h); background:var(--white); border-top:1.5px solid var(--gray); display:flex; align-items:center; justify-content:space-between; padding:18px 28px 36px; gap:16px; flex-shrink:0; }
-.led-group { display:flex; gap:10px; align-items:center; }
-.led-card { cursor:pointer; user-select:none; background:#f5f5f5; border:1.5px solid #e0e0e0; border-radius:14px; display:flex; flex-direction:column; align-items:center; width:62px; padding:10px 0 8px; gap:8px; transition:background 0.2s,border-color 0.2s,box-shadow 0.2s; }
-.led-card:active { opacity:0.75; }
-.led-card.on { background:#e8f4ff; border-color:#90c8f0; box-shadow:0 0 10px rgba(90,170,240,0.25); }
-.led-card.disabled-card { opacity:0.38; pointer-events:none; }
-.led-bulb { width:26px; height:26px; border-radius:50%; background:#c8c8c8; border:2px solid #b0b0b0; transition:background 0.25s,border-color 0.25s,box-shadow 0.25s; flex-shrink:0; }
-.led-card.on .led-bulb.blue { background:#5ab4f0; border-color:#3a9ae0; box-shadow:0 0 10px rgba(90,180,240,0.85); }
-.led-card.on .led-bulb.white { background:#fff8d0; border-color:#d0c060; box-shadow:0 0 12px rgba(255,240,140,0.95); }
-.led-toggle-track { border-radius:99px; background:#d0d0d0; position:relative; transition:background 0.2s; width:36px; height:20px; }
-.led-toggle-track::after { content:''; position:absolute; background:white; border-radius:50%; box-shadow:0 1px 3px rgba(0,0,0,0.2); transition:transform 0.2s; width:14px; height:14px; top:3px; left:3px; }
-.led-card.on .led-toggle-track { background:#5ab4f0; }
-.led-card.on .led-toggle-track::after { transform:translateX(16px); }
-.capture-btn { border-radius:50%; background:var(--blue); border:4px solid white; outline:3px solid var(--blue); cursor:pointer; flex-shrink:0; display:flex; align-items:center; justify-content:center; transition:transform 0.1s,background 0.15s; box-shadow:0 4px 16px rgba(90,180,240,0.45); width:72px; height:72px; }
+.bottom { height:var(--bottom-h); background:white; border-top:1.5px solid var(--gray); display:flex; align-items:center; justify-content:space-between; padding:18px 28px 36px; gap:16px; flex-shrink:0; }
+.led-group { display:flex; gap:10px; }
+.led-card { cursor:pointer; background:#f5f5f5; border:1.5px solid #e0e0e0; border-radius:14px; display:flex; flex-direction:column; align-items:center; width:62px; padding:10px 0 8px; gap:8px; }
+.led-card.disabled { opacity:0.35; pointer-events:none; }
+.led-card.on { background:#e8f4ff; border-color:#90c8f0; }
+.led-bulb { width:26px; height:26px; border-radius:50%; background:#ccc; border:2px solid #bbb; }
+.led-card.on .led-bulb.blue { background:#5ab4f0; border-color:#3a9ae0; box-shadow:0 0 10px rgba(90,180,240,0.8); }
+.led-card.on .led-bulb.white { background:#fff8d0; border-color:#d0c060; box-shadow:0 0 12px rgba(255,240,140,0.9); }
+.led-toggle { width:36px; height:20px; border-radius:99px; background:#d0d0d0; position:relative; transition:background 0.2s; }
+.led-toggle::after { content:''; position:absolute; width:14px; height:14px; background:white; border-radius:50%; top:3px; left:3px; transition:transform 0.2s; box-shadow:0 1px 3px rgba(0,0,0,0.2); }
+.led-card.on .led-toggle { background:var(--blue); }
+.led-card.on .led-toggle::after { transform:translateX(16px); }
+.capture-btn { width:72px; height:72px; border-radius:50%; background:var(--blue); border:4px solid white; outline:3px solid var(--blue); cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 16px rgba(90,180,240,0.4); flex-shrink:0; }
 .capture-btn:active { transform:scale(0.91); background:#3a9ae0; }
-.capture-btn:disabled { background:#ccc; outline-color:#ccc; box-shadow:none; cursor:not-allowed; }
-.ble-btn { cursor:pointer; background:#ebebeb; border:1.5px solid #d5d5d5; transition:background 0.2s,border-color 0.2s; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:5px; width:38px; border-radius:12px; padding:12px 0; min-height:68px; flex-shrink:0; }
-.ble-btn-dot { width:8px; height:8px; border-radius:50%; background:#bbb; transition:background 0.3s,box-shadow 0.3s; }
-.ble-btn svg { opacity:0.5; }
-.ble-btn-label { display:none; font-size:14px; font-weight:500; color:#444; }
+.ble-btn { cursor:pointer; background:#ebebeb; border:1.5px solid #d5d5d5; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:5px; width:38px; min-height:68px; flex-shrink:0; padding:12px 0; }
+.ble-btn-dot { width:8px; height:8px; border-radius:50%; background:#bbb; }
 .ble-btn.connected { background:#e8f9f2; border-color:#7dd8b5; }
-.ble-btn.connected .ble-btn-dot { background:var(--green); box-shadow:0 0 0 3px rgba(10,158,110,0.2); animation:pulseDot 2s infinite; }
-.ble-btn.connected svg { opacity:0.85; }
-.ble-btn.connecting { background:#eff6ff; border-color:#93c5fd; }
+.ble-btn.connected .ble-btn-dot { background:var(--green); animation:pulseDot 2s infinite; }
 .ble-btn.connecting .ble-btn-dot { background:#60a5fa; animation:pulseDot 0.8s infinite; }
-@media(min-width:768px) {
-  .bottom { padding:20px 48px 24px; gap:0; }
-  .led-card { width:130px; padding:14px 16px 12px; border-radius:16px; gap:10px; align-items:flex-start; }
-  .led-group { gap:14px; }
-  .led-bulb { width:32px; height:32px; }
-  .led-toggle-track { width:48px; height:26px; align-self:center; }
-  .led-toggle-track::after { width:18px; height:18px; top:4px; left:4px; }
-  .led-card.on .led-toggle-track::after { transform:translateX(22px); }
-  .capture-btn { width:80px; height:80px; }
-  .ble-btn { flex-direction:row; gap:10px; width:auto; min-height:unset; padding:14px 22px; border-radius:10px; }
-  .ble-btn-dot { width:9px; height:9px; }
-  .ble-btn-label { display:block; }
-  .ble-btn svg { display:none; }
-}
-#toast { position:fixed; bottom:calc(var(--bottom-h)+10px); left:50%; transform:translateX(-50%) translateY(10px); background:rgba(20,20,20,0.82); color:white; padding:10px 20px; border-radius:99px; font-size:13px; white-space:nowrap; opacity:0; transition:opacity 0.2s,transform 0.2s; pointer-events:none; z-index:999; backdrop-filter:blur(8px); max-width:88vw; text-align:center; }
+
+/* toast */
+#toast { position:fixed; bottom:calc(var(--bottom-h) + 10px); left:50%; transform:translateX(-50%) translateY(8px); background:rgba(20,20,20,0.85); color:white; padding:10px 20px; border-radius:99px; font-size:13px; white-space:nowrap; opacity:0; transition:opacity 0.2s,transform 0.2s; pointer-events:none; z-index:9999; max-width:88vw; text-align:center; }
 #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
-.cam-wrap video.filter-yellow { filter:sepia(1.0) saturate(1.8) hue-rotate(5deg) brightness(1.05); }
 </style>
 </head>
 <body>
+
+<!-- TOAST -->
 <div id="toast"></div>
 
+<!-- MODAL BOTTOM SHEET (di luar .app, langsung di body) -->
+<div id="modalSheet">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Beri nama foto</div>
+    <div class="sheet-sub normal" id="sheetInfo">Foto berhasil diambil</div>
+    <label class="sheet-label">Nama Pasien</label>
+    <input class="sheet-input" id="inputNama" type="text" placeholder="Contoh: Budi Santoso" autocomplete="off"/>
+    <label class="sheet-label">Pilih Mata</label>
+    <div class="mata-row">
+      <button class="mata-btn active" id="btnOD" onclick="pilihMata('OD')">Kanan (OD)</button>
+      <button class="mata-btn" id="btnOS" onclick="pilihMata('OS')">Kiri (OS)</button>
+    </div>
+    <button class="btn-save" onclick="simpanFoto()">Simpan ke Galeri</button>
+    <button class="btn-discard" onclick="batalFoto()">Buang foto ini</button>
+  </div>
+</div>
+
+<!-- APP -->
 <div class="app">
 
-
-
-
-
-<!-- Kamera -->
-<div class="cam-wrap" id="camWrap">
-  <video id="vid" autoplay playsinline muted></video>
-  <canvas id="cvs"></canvas>
-  <div class="cam-idle" id="camIdle">
-    <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="1.5">
-      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-      <circle cx="12" cy="13" r="4"/>
-    </svg>
-    <p>ScanCornea — Kamera belum aktif</p>
-  </div>
-  <div class="crosshair-wrap"><div class="crosshair-ring"></div></div>
-  <div class="flash-overlay" id="flashOverlay"></div>
-  <div class="ble-badge" id="bleBadge"><div class="ble-badge-dot"></div><span id="bleBadgeText">BLE</span></div>
-  <div class="zoom-badge" id="zoomBadge">1.0×</div>
-  <div class="foto-counter" id="fotoCounter">Foto #1</div>
-  <div class="pinch-hint">Cubit 2 jari untuk zoom · Tap 2× reset</div>
-  <button class="filter-btn" id="filterBtn" onclick="toggleFilter()"><div class="filter-dot"></div><span id="filterLabel">Filter</span></button>
-  <div class="upload-pill" id="uploadPill"></div>
-</div>
-
-<!-- Bottom Bar -->
-<div class="bottom">
-  <div class="led-group">
-    <div class="led-card disabled-card" id="cardBiru" onclick="toggleLED('B')">
-      <div class="led-bulb blue"></div>
-      <div class="led-toggle-track"></div>
+  <!-- KAMERA -->
+  <div class="cam-wrap" id="camWrap">
+    <video id="vid" autoplay playsinline muted></video>
+    <canvas id="cvs"></canvas>
+    <div class="cam-idle" id="camIdle">
+      <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="1.5">
+        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+        <circle cx="12" cy="13" r="4"/>
+      </svg>
+      <p>ScanCornea</p>
     </div>
-    <div class="led-card disabled-card" id="cardPutih" onclick="toggleLED('W')">
-      <div class="led-bulb white"></div>
-      <div class="led-toggle-track"></div>
-    </div>
+    <div class="crosshair-wrap"><div class="crosshair-ring"></div></div>
+    <div class="flash-overlay" id="flashEl"></div>
+    <div class="ble-badge" id="bleBadge"><div class="ble-dot"></div><span id="bleText">BLE</span></div>
+    <div class="zoom-badge" id="zoomBadge">1.0×</div>
+    <div class="foto-counter" id="fotoCounter">Foto #1</div>
+    <div class="upload-pill" id="uploadPill"></div>
+    <button class="filter-btn" id="filterBtn" onclick="toggleFilter()">
+      <div class="filter-dot"></div><span id="filterLabel">Filter</span>
+    </button>
   </div>
-  <button class="capture-btn" id="btnJepret" onclick="jepret()">
-    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2">
-      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-      <circle cx="12" cy="13" r="4"/>
-    </svg>
-  </button>
-  <button class="ble-btn" id="btnBle" onclick="handleBle()">
-    <div class="ble-btn-dot"></div>
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="color:#555;">
-      <path d="M17.71 7.71 12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
-    </svg>
-    <span class="ble-btn-label" id="bleBtnLabel">Bluetooth</span>
-  </button>
-</div>
+
+  <!-- BOTTOM BAR -->
+  <div class="bottom">
+    <div class="led-group">
+      <div class="led-card disabled" id="cardBiru" onclick="toggleLED('B')">
+        <div class="led-bulb blue"></div>
+        <div class="led-toggle"></div>
+      </div>
+      <div class="led-card disabled" id="cardPutih" onclick="toggleLED('W')">
+        <div class="led-bulb white"></div>
+        <div class="led-toggle"></div>
+      </div>
+    </div>
+    <button class="capture-btn" id="btnJepret" onclick="jepret()">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2">
+        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+        <circle cx="12" cy="13" r="4"/>
+      </svg>
+    </button>
+    <button class="ble-btn" id="btnBle" onclick="handleBle()">
+      <div class="ble-btn-dot"></div>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="#555">
+        <path d="M17.71 7.71 12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
+      </svg>
+    </button>
+  </div>
 </div>
 
 <script>
+'use strict';
+
 // ── Config ──
 const SERVICE_UUID = '12345678-1234-5678-1234-56789abcdef0';
 const CHAR_UUID    = '12345678-1234-5678-1234-56789abcdef1';
 const DRIVE_URL    = 'https://script.google.com/macros/s/AKfycby5KuXspaAEF9LDY9QEU5gcMRH_73H4px6pfkruq3zNdT7Tqy_I5orMzYRwv4ljszAg/exec';
 
 // ── State ──
-let bleDevice=null, bleChar=null, isConnected=false;
-let ledState={B:false,W:false};
+let kameraAktif=false, scale=1, p0dist=0, p0scale=1;
 let filterOn=false;
-let kameraAktif=false;
-let scale=1, p0dist=0, p0scale=1;
-let badgeTmr, toastTmr;
-const SMIN=1, SMAX=6;
-
-// ── Pasien ──
+let bleDevice=null, bleChar=null, isConnected=false;
+let ledState={B:false, W:false};
 let mataPasien='OD', fotoCounter=1;
 let pendingBlob=null;
+let cvReady=false;
+let toastTimer;
 
-function pilihMata(mata){
-  mataPasien=mata;
-  document.getElementById('btnOD').classList.toggle('selected',mata==='OD');
-  document.getElementById('btnOS').classList.toggle('selected',mata==='OS');
+const vid     = document.getElementById('vid');
+const camWrap = document.getElementById('camWrap');
+
+// ── Toast ──
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
 }
 
-function buatNamaFile(nama){
-  const now=new Date();
-  const tahun=now.getFullYear();
-  const jam=String(now.getHours()).padStart(2,'0');
-  const menit=String(now.getMinutes()).padStart(2,'0');
-  const mataLabel=mataPasien==='OD'?'kanan':'kiri';
-  const namaClean=(nama||'pasien').replace(/[^a-zA-Z0-9 ]/g,'').trim().toLowerCase().replace(/ +/g,'_')||'pasien';
-  const nomorUrut=String(fotoCounter).padStart(3,'0');
-  return tahun+'_'+jam+'-'+menit+'_'+mataLabel+'_'+namaClean+'_'+nomorUrut;
+// ── Pilih mata ──
+function pilihMata(m) {
+  mataPasien = m;
+  document.getElementById('btnOD').classList.toggle('active', m==='OD');
+  document.getElementById('btnOS').classList.toggle('active', m==='OS');
 }
 
-function tampilModalNama(blob,info){
-  pendingBlob=blob;
-  const input=document.getElementById('inputNama');
-  if(input) input.value='';
-  const infoEl=document.getElementById('modalPreviewInfo');
-  if(infoEl) infoEl.textContent=info||'Foto berhasil diambil';
-  document.getElementById('modalOverlay').classList.remove('hidden');
-  // Nonaktifkan touch-action:none di cam-wrap agar modal bisa ditekan
-  document.getElementById('camWrap').style.touchAction='auto';
-  setTimeout(()=>{ if(input) input.focus(); },300);
+// ── Buat nama file ──
+function buatNama(nama) {
+  const d = new Date();
+  const thn  = d.getFullYear();
+  const jam  = String(d.getHours()).padStart(2,'0');
+  const mnt  = String(d.getMinutes()).padStart(2,'0');
+  const mata = mataPasien==='OD' ? 'kanan' : 'kiri';
+  const n    = (nama||'pasien').replace(/[^a-zA-Z0-9 ]/g,'').trim().toLowerCase().replace(/ +/g,'_') || 'pasien';
+  const no   = String(fotoCounter).padStart(3,'0');
+  return `${thn}_${jam}-${mnt}_${mata}_${n}_${no}`;
 }
 
-function simpanFoto(){
-  if(!pendingBlob){ showToast('Tidak ada foto'); return; }
-  const nama=(document.getElementById('inputNama').value.trim())||'pasien';
-  const namaFile=buatNamaFile(nama)+'.jpg';
-  document.getElementById('modalOverlay').classList.add('hidden');
+// ── Modal bottom sheet ──
+function bukaModal(blob, info) {
+  pendingBlob = blob;
+  document.getElementById('inputNama').value = '';
+  document.getElementById('sheetInfo').textContent = info || 'Foto berhasil diambil';
+  document.getElementById('sheetInfo').className = info && info.includes('terdeteksi') ? 'sheet-sub' : 'sheet-sub normal';
+  document.getElementById('modalSheet').classList.add('show');
+  setTimeout(() => document.getElementById('inputNama').focus(), 400);
+}
+
+function tutupModal() {
+  document.getElementById('modalSheet').classList.remove('show');
+}
+
+function simpanFoto() {
+  if (!pendingBlob) { toast('Tidak ada foto'); return; }
+  const nama = document.getElementById('inputNama').value.trim() || 'pasien';
+  const namaFile = buatNama(nama) + '.jpg';
+  tutupModal();
 
   const blob = pendingBlob;
   pendingBlob = null;
   fotoCounter++;
-  document.getElementById('fotoCounter').textContent='Foto #'+fotoCounter;
+  document.getElementById('fotoCounter').textContent = 'Foto #' + fotoCounter;
 
   const reader = new FileReader();
-  reader.onload = function() {
+  reader.onload = () => {
     const dataUrl = reader.result;
     const b64 = dataUrl.split(',')[1];
     const pill = document.getElementById('uploadPill');
 
-    // Deteksi iOS
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-                  (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+    // iOS detection
+    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-    if(isIOS) {
-      // iOS: navigator.share langsung tanpa pop up pilih app
-      // Share sheet muncul otomatis — user tinggal tap "Save Image"
-      try {
-        const file = new File([blob], namaFile, {type:'image/jpeg'});
-        if(navigator.canShare && navigator.canShare({files:[file]})) {
-          navigator.share({
-            files: [file],
-            title: 'ScanCornea',
-          }).then(()=>{
-            showToast('✓ Tersimpan ke galeri');
-          }).catch(e=>{
-            if(e.name!=='AbortError') showToast('Gagal: '+e.message);
-          });
-        } else {
-          // Fallback iOS: buka gambar di tab baru → user tap & tahan
-          const w = window.open();
-          w.document.write('<img src="'+dataUrl+'" style="width:100%;max-width:100%">');
-          w.document.title = namaFile;
-          showToast('Tahan gambar → Save to Photos');
-        }
-      } catch(e) {
-        showToast('Error: '+e.message);
+    if (isIOS) {
+      // iOS: gunakan navigator.share — share sheet muncul otomatis
+      const file = new File([blob], namaFile, {type:'image/jpeg'});
+      if (navigator.share && navigator.canShare && navigator.canShare({files:[file]})) {
+        navigator.share({files:[file], title:'ScanCornea'})
+          .then(() => toast('✓ Tersimpan!'))
+          .catch(e => { if (e.name !== 'AbortError') toast('Gagal: ' + e.message); });
+      } else {
+        // Fallback: buka di tab baru, user tahan untuk simpan
+        const url = URL.createObjectURL(blob);
+        window.open(url);
+        toast('Tahan gambar → Save to Photos');
       }
     } else {
-      // Android/Desktop: download langsung ke galeri tanpa pop up
+      // Android: download langsung
       const a = document.createElement('a');
       a.href = dataUrl;
       a.download = namaFile;
       a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
-      setTimeout(()=> document.body.removeChild(a), 500);
-      showToast('✓ Tersimpan: '+namaFile);
+      setTimeout(() => document.body.removeChild(a), 500);
+      toast('✓ Tersimpan: ' + namaFile);
     }
 
-    // Upload ke Drive background (semua platform)
-    uploadBackground(b64, namaFile, pill);
+    uploadBg(b64, namaFile, pill);
   };
   reader.readAsDataURL(blob);
-  // Kembalikan touch-action cam-wrap
-  document.getElementById('camWrap').style.touchAction='none';
 }
 
-function batalSimpan(){
-  pendingBlob=null;
-  document.getElementById('modalOverlay').classList.add('hidden');
-  // Kembalikan touch-action cam-wrap
-  document.getElementById('camWrap').style.touchAction='none';
-  showToast('Foto dibuang');
+function batalFoto() {
+  pendingBlob = null;
+  tutupModal();
+  toast('Foto dibuang');
 }
 
-// ── OpenCV ──
+// Enter key di input
+document.getElementById('inputNama').addEventListener('keydown', e => {
+  if (e.key === 'Enter') simpanFoto();
+});
 
-
-const video   = document.getElementById('vid');
-const camWrap = document.getElementById('camWrap');
-
-// ── Console mute ──
-console.log=console.warn=console.info=()=>{};
-
-// ── Auto retry kamera ──
-setTimeout(() => {
-  if (!kameraAktif) startCamera();
-
-
-}, 2000);
-
-// ── OpenCV state ──
-let cvReady = false;
-
-// ── OpenCV callbacks ──
-function onOpenCvReady() {
-  cvReady=true;
-  document.getElementById('eyeStatus').textContent='OpenCV siap — arahkan ke kornea';
-  setTimeout(()=>{ try{initCircleDetection();}catch(e){} }, 1000);
-}
-function onOpenCvError() {
-  document.getElementById('eyeStatus').textContent='Deteksi fallback aktif';
-  setTimeout(()=>{ try{initCircleDetection();}catch(e){} }, 1000);
-}
-
-// ── Toast ──
-function showToast(msg) {
-  const el=document.getElementById('toast');
-  el.textContent=msg; el.classList.add('show');
-  clearTimeout(toastTmr);
-  toastTmr=setTimeout(()=>el.classList.remove('show'),2800);
-}
-
-// ── Pasien functions ──
-function pilihMata(mata) {
-  mataPasien=mata;
-  document.getElementById('btnOD').classList.toggle('selected',mata==='OD');
-  document.getElementById('btnOS').classList.toggle('selected',mata==='OS');
-}
-
-
-function buatNamaFile() {
-  const now=new Date();
-  const tahun=now.getFullYear();
-  const jam=String(now.getHours()).padStart(2,'0');
-  const menit=String(now.getMinutes()).padStart(2,'0');
-  const mataLabel=mataPasien==='OD'?'kanan':'kiri';
-  const namaClean=namaPasien.replace(/[^a-zA-Z0-9 ]/g,'').trim().toLowerCase().replace(/ +/g,'_');
-  const nomorUrut=String(fotoCounter).padStart(3,'0');
-  return tahun+'_'+jam+'-'+menit+'_'+mataLabel+'_'+namaClean+'_'+nomorUrut;
-}
+// Tap backdrop untuk tutup modal
+document.getElementById('modalSheet').addEventListener('click', e => {
+  if (e.target === document.getElementById('modalSheet')) batalFoto();
+});
 
 // ── Kamera ──
 async function startCamera() {
   try {
-    const stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}}
     });
-    video.srcObject=stream;
-    kameraAktif=true;
-    document.getElementById('camIdle').style.display='none';
-    camWrap.classList.add('cam-on');
-    scale=1; applyZoom(false);
+    vid.srcObject = stream;
+    kameraAktif = true;
+    document.getElementById('camIdle').style.display = 'none';
+    scale = 1; applyZoom();
   } catch(e) {
-    showToast('Error: ' + e.name + ' — ' + e.message);
+    toast('Izinkan akses kamera: ' + e.message);
   }
 }
 startCamera();
+setTimeout(() => { if (!kameraAktif) startCamera(); }, 2500);
 
 // ── Pinch zoom ──
-camWrap.addEventListener('touchstart',e=>{
-  if(e.touches.length===2){e.preventDefault();p0dist=dist2(e.touches);p0scale=scale;}
-},{passive:false});
-camWrap.addEventListener('touchmove',e=>{
-  if(e.touches.length===2){e.preventDefault();const ns=Math.min(SMAX,Math.max(SMIN,p0scale*dist2(e.touches)/p0dist));if(Math.abs(ns-scale)>0.02){scale=ns;applyZoom(true);}}
-},{passive:false});
-camWrap.addEventListener('touchend',e=>{
-  if(e.touches.length<2){clearTimeout(badgeTmr);badgeTmr=setTimeout(()=>document.getElementById('zoomBadge').classList.remove('show'),1800);}
+function dist2(t) { return Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY); }
+function applyZoom(show) {
+  vid.style.transform = `scale(${scale})`;
+  const b = document.getElementById('zoomBadge');
+  b.textContent = scale.toFixed(1) + '×';
+  b.style.display = show ? 'block' : 'none';
+}
+camWrap.addEventListener('touchstart', e => {
+  if (e.touches.length === 2) { e.preventDefault(); p0dist = dist2(e.touches); p0scale = scale; }
+}, {passive:false});
+camWrap.addEventListener('touchmove', e => {
+  if (e.touches.length === 2) { e.preventDefault(); scale = Math.min(6, Math.max(1, p0scale * dist2(e.touches) / p0dist)); applyZoom(true); }
+}, {passive:false});
+let lastTap = 0;
+camWrap.addEventListener('touchend', e => {
+  if (e.touches.length > 0) return;
+  const now = Date.now();
+  if (now - lastTap < 280) { scale = 1; applyZoom(true); }
+  lastTap = now;
 });
-let lastTap=0;
-camWrap.addEventListener('touchend',e=>{
-  if(e.touches.length>0)return;
-  const now=Date.now();
-  if(now-lastTap<280){scale=1;applyZoom(true);}
-  lastTap=now;
-});
-function dist2(t){return Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);}
-function applyZoom(show){
-  video.style.transform=`scale(${scale})`;
-  const b=document.getElementById('zoomBadge');
-  b.textContent=scale.toFixed(1)+'×';
-  if(show)b.classList.add('show');
+
+// ── Filter ──
+function toggleFilter() {
+  filterOn = !filterOn;
+  vid.classList.toggle('filter-on', filterOn);
+  document.getElementById('filterBtn').classList.toggle('on', filterOn);
+  document.getElementById('filterLabel').textContent = filterOn ? 'Filter ON' : 'Filter';
 }
 
-// ── Filter kuning ──
-function toggleFilter(){
-  filterOn=!filterOn;
-  const btn=document.getElementById('filterBtn');
-  const label=document.getElementById('filterLabel');
-  btn.classList.toggle('on',filterOn);
-  label.textContent=filterOn?'Filter ON':'Filter';
-  video.classList.toggle('filter-yellow',filterOn);
-}
+// ── OpenCV ──
+const DETECT_SIZE = 320;
+const dCvs = document.createElement('canvas');
+dCvs.width = dCvs.height = DETECT_SIZE;
+const dCtx = dCvs.getContext('2d');
 
-// ── OpenCV HoughCircles — crop SETELAH jepret ──
-// Tidak ada interval/real-time, hemat baterai
-// Dipanggil hanya saat tombol jepret ditekan
+function onOpenCvReady() { cvReady = true; }
+function onOpenCvError() { cvReady = false; }
 
-function cropKornea(sourceCanvas) {
-  // ═══════════════════════════════════════════════
-  // Pipeline adaptasi ANPR untuk deteksi kornea
-  // Berdasarkan 75 foto kornea medis yang dianalisis
-  //
-  // PIPELINE (mirip deteksi plat nomor):
-  //   1. Grayscale + Bilateral filter (jaga tepi)
-  //   2. Canny edge detection
-  //   3. findContours → sortir by area
-  //   4. Filter contour yang BULAT (bukan kotak)
-  //      → circularity = 4π×area/perimeter²
-  //      → kornea circularity > 0.6
-  //   5. minEnclosingCircle → dapat cx, cy, r
-  //   6. Validasi: radius 20-52%, center ≤25% tengah
-  //   7. Crop persegi + resize 512×512
-  // ═══════════════════════════════════════════════
-  return new Promise((resolve) => {
-    const ctx = sourceCanvas.getContext('2d');
-    const w   = sourceCanvas.width, h = sourceCanvas.height;
+function cropKornea(srcCanvas) {
+  return new Promise(resolve => {
+    const ctx = srcCanvas.getContext('2d');
+    const w = srcCanvas.width, h = srcCanvas.height;
 
     if (cvReady && typeof cv !== 'undefined' && cv.Mat) {
       try {
-        // Step 1: Downscale ke 480x480
-        const sz  = 480;
-        const tmp = document.createElement('canvas');
-        tmp.width = sz; tmp.height = sz;
-        tmp.getContext('2d').drawImage(sourceCanvas, 0, 0, sz, sz);
-
-        const src      = cv.imread(tmp);
-        const gray     = new cv.Mat();
-        const filtered = new cv.Mat();
-        const edges    = new cv.Mat();
-
-        // Step 2: Grayscale
+        const sz = DETECT_SIZE;
+        dCvs.width = sz; dCvs.height = sz;
+        dCtx.drawImage(srcCanvas, 0, 0, sz, sz);
+        const src = cv.imread(dCvs);
+        const gray = new cv.Mat(), blur = new cv.Mat(), edges = new cv.Mat();
         cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-
-        // Step 3: Bilateral filter — jaga tepi kornea, hilangkan noise
-        // (lebih baik dari Gaussian untuk tepi lengkung kornea)
-        cv.bilateralFilter(gray, filtered, 11, 17, 17);
-
-        // Step 4: Canny edge — temukan batas kornea
-        // Berdasarkan data: kornea selalu kontras dengan sklera
-        cv.Canny(filtered, edges, 30, 200);
-
-        // Step 5: Dilate edge sedikit agar contour tersambung
-        const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
-        cv.dilate(edges, edges, kernel);
-
-        // Step 6: findContours — sama persis seperti ANPR
-        const contours  = new cv.MatVector();
-        const hierarchy = new cv.Mat();
-        cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-        // Step 7: Sort by area (terbesar dulu) — ambil top 15
-        const centerX = sz / 2, centerY = sz / 2;
-        const candidates = [];
+        cv.bilateralFilter(gray, blur, 11, 17, 17);
+        cv.Canny(blur, edges, 30, 200);
+        const k = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3,3));
+        cv.dilate(edges, edges, k);
+        const contours = new cv.MatVector(), hier = new cv.Mat();
+        cv.findContours(edges, contours, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+        const cx0 = sz/2, cy0 = sz/2;
+        let best = null, bestScore = -1;
         for (let i = 0; i < contours.size(); i++) {
-          const cnt  = contours.get(i);
+          const cnt = contours.get(i);
           const area = cv.contourArea(cnt);
-
-          // Filter area: radius 20-52% dari frame
-          const minArea = Math.PI * Math.pow(sz * 0.18, 2);
-          const maxArea = Math.PI * Math.pow(sz * 0.54, 2);
-          if (area < minArea || area > maxArea) continue;
-
-          // Hitung circularity — kunci pembeda kornea (bulat) vs noise (tidak)
-          const perimeter    = cv.arcLength(cnt, true);
-          if (perimeter === 0) continue;
-          const circularity  = (4 * Math.PI * area) / (perimeter * perimeter);
-
-          // Kornea harus cukup bulat (circularity > 0.45)
-          // Lebih longgar dari lingkaran sempurna (1.0) karena kelopak mata
-          if (circularity < 0.45) continue;
-
-          // Hitung center contour
+          const minA = Math.PI * Math.pow(sz*0.18, 2);
+          const maxA = Math.PI * Math.pow(sz*0.54, 2);
+          if (area < minA || area > maxA) continue;
+          const peri = cv.arcLength(cnt, true);
+          if (peri === 0) continue;
+          const circ = 4 * Math.PI * area / (peri * peri);
+          if (circ < 0.45) continue;
           const M = cv.moments(cnt);
           if (M.m00 === 0) continue;
-          const cx = M.m10 / M.m00;
-          const cy = M.m01 / M.m00;
-
-          // Harus dekat tengah frame (toleransi 28%)
-          const dist = Math.hypot(cx - centerX, cy - centerY);
-          if (dist > sz * 0.28) continue;
-
-          // Skor: area besar + bulat + dekat tengah
-          const score = area * circularity / (1 + dist * 0.5);
-          candidates.push({ idx: i, score, cx, cy, area, circularity });
+          const cx = M.m10/M.m00, cy = M.m01/M.m00;
+          const dist = Math.hypot(cx-cx0, cy-cy0);
+          if (dist > sz*0.28) continue;
+          const score = area * circ / (1 + dist*0.5);
+          if (score > bestScore) { bestScore = score; best = {cnt, cx, cy}; }
         }
-
-        // Step 8: Ambil kandidat terbaik
-        candidates.sort((a, b) => b.score - a.score);
-
-        if (candidates.length > 0) {
-          const best = candidates[0];
-          const cnt  = contours.get(best.idx);
-
-          // Step 9: minEnclosingCircle → dapat radius presisi
-          const circle = cv.minEnclosingCircle(cnt);
-          const realCx_s = circle.center.x;
-          const realCy_s = circle.center.y;
-          const realR_s  = circle.radius;
-
-          // Konversi ke koordinat canvas asli
-          const scaleX = w / sz, scaleY = h / sz;
-          const realCx = realCx_s * scaleX;
-          const realCy = realCy_s * scaleY;
-          const realR  = realR_s  * Math.max(scaleX, scaleY);
-
-          // Padding 10% agar kornea tidak terpotong di tepi
-          const pad  = realR * 0.10;
-          const side = (realR + pad) * 2;
-          const ex   = Math.max(0, Math.round(realCx - realR - pad));
-          const ey   = Math.max(0, Math.round(realCy - realR - pad));
-          const ew   = Math.min(Math.round(side), w - ex);
-          const eh   = Math.min(Math.round(side), h - ey);
-
-          // Crop dan output 512x512
-          const cropData  = ctx.getImageData(ex, ey, ew, eh);
-          const outCanvas = document.createElement('canvas');
-          outCanvas.width = 512; outCanvas.height = 512;
-          const cropTmp   = document.createElement('canvas');
-          cropTmp.width   = ew; cropTmp.height = eh;
-          cropTmp.getContext('2d').putImageData(cropData, 0, 0);
-          outCanvas.getContext('2d').drawImage(cropTmp, 0, 0, ew, eh, 0, 0, 512, 512);
-
-          // Cleanup memori OpenCV (wajib!)
-          src.delete(); gray.delete(); filtered.delete(); edges.delete();
-          kernel.delete(); contours.delete(); hierarchy.delete();
-          resolve({ canvas: outCanvas, cropped: true, method: 'canny-contour',
-                    info: `circularity: ${best.circularity.toFixed(2)}, r: ${Math.round(realR)}px` });
+        if (best) {
+          const circle = cv.minEnclosingCircle(best.cnt);
+          const sx = w/sz, sy = h/sz;
+          const rcx = circle.center.x*sx, rcy = circle.center.y*sy;
+          const rr  = circle.radius * Math.max(sx,sy);
+          const pad = rr*0.10, side = (rr+pad)*2;
+          const ex = Math.max(0, Math.round(rcx-rr-pad));
+          const ey = Math.max(0, Math.round(rcy-rr-pad));
+          const ew = Math.min(Math.round(side), w-ex);
+          const eh = Math.min(Math.round(side), h-ey);
+          const crop = ctx.getImageData(ex, ey, ew, eh);
+          const out = document.createElement('canvas');
+          out.width = out.height = 512;
+          const t = document.createElement('canvas');
+          t.width = ew; t.height = eh;
+          t.getContext('2d').putImageData(crop, 0, 0);
+          out.getContext('2d').drawImage(t, 0, 0, ew, eh, 0, 0, 512, 512);
+          src.delete(); gray.delete(); blur.delete(); edges.delete();
+          k.delete(); contours.delete(); hier.delete();
+          resolve({canvas:out, cropped:true});
           return;
         }
-
-        // Fallback 1: Dark region threshold (dari iterasi sebelumnya)
-        const blurred = new cv.Mat();
-        const thresh  = new cv.Mat();
-        const contours2 = new cv.MatVector();
-        const hier2     = new cv.Mat();
-        cv.GaussianBlur(gray, blurred, new cv.Size(21, 21), 5, 5);
-        const mean     = cv.mean(blurred);
-        const threshVal = Math.min(mean[0] * 0.60, 105);
-        cv.threshold(blurred, thresh, threshVal, 255, cv.THRESH_BINARY_INV);
-        const k2 = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(15, 15));
-        cv.morphologyEx(thresh, thresh, cv.MORPH_CLOSE, k2);
-        cv.findContours(thresh, contours2, hier2, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-        let bestIdx2 = -1, bestScore2 = -1;
-        for (let i = 0; i < contours2.size(); i++) {
-          const cnt2  = contours2.get(i);
-          const area2 = cv.contourArea(cnt2);
-          const minA  = Math.PI * Math.pow(sz * 0.18, 2);
-          const maxA  = Math.PI * Math.pow(sz * 0.54, 2);
-          if (area2 < minA || area2 > maxA) continue;
-          const M2   = cv.moments(cnt2);
-          if (M2.m00 === 0) continue;
-          const cx2  = M2.m10 / M2.m00, cy2 = M2.m01 / M2.m00;
-          const dist2 = Math.hypot(cx2 - centerX, cy2 - centerY);
-          if (dist2 > sz * 0.30) continue;
-          const score2 = area2 / (1 + dist2 * 0.5);
-          if (score2 > bestScore2) { bestScore2 = score2; bestIdx2 = i; }
-        }
-
-        if (bestIdx2 >= 0) {
-          const cnt2   = contours2.get(bestIdx2);
-          const circle2 = cv.minEnclosingCircle(cnt2);
-          const scaleX = w / sz, scaleY = h / sz;
-          const realCx = circle2.center.x * scaleX;
-          const realCy = circle2.center.y * scaleY;
-          const realR  = circle2.radius * Math.max(scaleX, scaleY);
-          const pad    = realR * 0.10;
-          const side   = (realR + pad) * 2;
-          const ex     = Math.max(0, Math.round(realCx - realR - pad));
-          const ey     = Math.max(0, Math.round(realCy - realR - pad));
-          const ew     = Math.min(Math.round(side), w - ex);
-          const eh     = Math.min(Math.round(side), h - ey);
-          const cropData  = ctx.getImageData(ex, ey, ew, eh);
-          const outCanvas = document.createElement('canvas');
-          outCanvas.width = 512; outCanvas.height = 512;
-          const cropTmp   = document.createElement('canvas');
-          cropTmp.width   = ew; cropTmp.height = eh;
-          cropTmp.getContext('2d').putImageData(cropData, 0, 0);
-          outCanvas.getContext('2d').drawImage(cropTmp, 0, 0, ew, eh, 0, 0, 512, 512);
-          src.delete(); gray.delete(); filtered.delete(); edges.delete(); kernel.delete();
-          blurred.delete(); thresh.delete(); contours.delete(); hierarchy.delete();
-          contours2.delete(); hier2.delete(); k2.delete();
-          resolve({ canvas: outCanvas, cropped: true, method: 'dark-region' });
-          return;
-        }
-
-        // Cleanup semua
-        src.delete(); gray.delete(); filtered.delete(); edges.delete(); kernel.delete();
-        blurred.delete(); thresh.delete(); contours.delete(); hierarchy.delete();
-        contours2.delete(); hier2.delete(); k2.delete();
+        src.delete(); gray.delete(); blur.delete(); edges.delete();
+        k.delete(); contours.delete(); hier.delete();
       } catch(e) {}
     }
-
-    // Fallback akhir: estimasi berdasarkan statistik 75 foto
-    // Kornea rata-rata di posisi 50% horizontal, 47% vertikal, radius 36%
-    const realR  = Math.min(w, h) * 0.36;
-    const realCx = w * 0.50;
-    const realCy = h * 0.47;
-    const pad    = realR * 0.10;
-    const side   = (realR + pad) * 2;
-    const ex     = Math.max(0, Math.round(realCx - realR - pad));
-    const ey     = Math.max(0, Math.round(realCy - realR - pad));
-    const ew     = Math.min(Math.round(side), w - ex);
-    const eh     = Math.min(Math.round(side), h - ey);
-    const cropData  = ctx.getImageData(ex, ey, ew, eh);
-    const outCanvas = document.createElement('canvas');
-    outCanvas.width = 512; outCanvas.height = 512;
-    const cropTmp   = document.createElement('canvas');
-    cropTmp.width   = ew; cropTmp.height = eh;
-    cropTmp.getContext('2d').putImageData(cropData, 0, 0);
-    outCanvas.getContext('2d').drawImage(cropTmp, 0, 0, ew, eh, 0, 0, 512, 512);
-    resolve({ canvas: outCanvas, cropped: false, method: 'fallback' });
+    // Fallback: crop tengah
+    const r = Math.min(w,h)*0.38, pad = r*0.10, side = (r+pad)*2;
+    const ex = Math.max(0, Math.round(w/2-r-pad));
+    const ey = Math.max(0, Math.round(h*0.47-r-pad));
+    const ew = Math.min(Math.round(side), w-ex);
+    const eh = Math.min(Math.round(side), h-ey);
+    const crop = ctx.getImageData(ex, ey, ew, eh);
+    const out = document.createElement('canvas');
+    out.width = out.height = 512;
+    const t = document.createElement('canvas');
+    t.width = ew; t.height = eh;
+    t.getContext('2d').putImageData(crop, 0, 0);
+    out.getContext('2d').drawImage(t, 0, 0, ew, eh, 0, 0, 512, 512);
+    resolve({canvas:out, cropped:false});
   });
 }
 
-
-async function jepret(){
-  if(!kameraAktif||!video.videoWidth){
-    await startCamera(); showToast('Kamera menyala, coba lagi'); return;
+// ── Jepret ──
+async function jepret() {
+  if (!kameraAktif || !vid.videoWidth) {
+    await startCamera(); toast('Kamera menyala, coba lagi'); return;
   }
-  const btn=document.getElementById('btnJepret');
-  const flash=document.getElementById('flashOverlay');
-  const pill=document.getElementById('uploadPill');
-  btn.disabled=true;
+  const btn = document.getElementById('btnJepret');
+  btn.disabled = true;
+  const flash = document.getElementById('flashEl');
   flash.classList.add('flash');
-  setTimeout(()=>flash.classList.remove('flash'),150);
+  setTimeout(() => flash.classList.remove('flash'), 150);
 
-  const canvas=document.getElementById('cvs');
-  const ctx=canvas.getContext('2d');
-  const vw=video.videoWidth, vh=video.videoHeight;
-  const cw=vw/scale, ch=vh/scale;
+  const canvas = document.getElementById('cvs');
+  const ctx = canvas.getContext('2d');
+  const vw = vid.videoWidth, vh = vid.videoHeight;
+  const cw = vw/scale, ch = vh/scale;
+  canvas.width = vw; canvas.height = vh;
+  ctx.drawImage(vid, (vw-cw)/2, (vh-ch)/2, cw, ch, 0, 0, vw, vh);
 
-  // Gambar full frame dulu
-  canvas.width=vw; canvas.height=vh;
-  ctx.drawImage(video,(vw-cw)/2,(vh-ch)/2,cw,ch,0,0,vw,vh);
-
-  // Filter pixel jika aktif
-  if(filterOn){
-    const imgData=ctx.getImageData(0,0,vw,vh);
-    const d=imgData.data;
-    for(let i=0;i<d.length;i+=4){
-      const r=d[i],g=d[i+1];
-      const lum=0.299*r+0.587*g+0.114*d[i+2];
-      d[i]=Math.min(255,r*1.0+lum*0.05);
-      d[i+1]=Math.min(255,g*1.0+lum*0.03);
-      d[i+2]=0;
+  if (filterOn) {
+    const d = ctx.getImageData(0,0,vw,vh);
+    for (let i=0; i<d.data.length; i+=4) {
+      const r=d.data[i], g=d.data[i+1];
+      const lum = 0.299*r + 0.587*g + 0.114*d.data[i+2];
+      d.data[i]   = Math.min(255, r + lum*0.05);
+      d.data[i+1] = Math.min(255, g + lum*0.03);
+      d.data[i+2] = 0;
     }
-    ctx.putImageData(imgData,0,0);
+    ctx.putImageData(d, 0, 0);
   }
 
-  // ── Crop kornea dari full frame menggunakan OpenCV ──
-  showToast('Memproses kornea...');
   try {
-    const result = await cropKornea(canvas);
-    const { canvas: outCanvas, cropped } = result;
-        // Tampilkan bottom sheet → isi nama → simpan ke galeri otomatis
+    const {canvas:outCanvas, cropped} = await cropKornea(canvas);
     outCanvas.toBlob(blob => {
-      const info = cropped
-        ? (result.method==='canny-contour'?'✓ Kornea terdeteksi presisi':'✓ Kornea terdeteksi')
-        : 'Foto penuh tersimpan';
-      tampilModalNama(blob, info);
+      const info = cropped ? '✓ Kornea terdeteksi' : 'Foto penuh';
+      bukaModal(blob, info);
     }, 'image/jpeg', 0.92);
-
-    video.play();
-    fotoCounter++;
-    document.getElementById('fotoCounter').textContent = 'Foto #' + fotoCounter;
-    const msgMap = { 'dark-region': 'Kornea terdeteksi presisi!', 'hough': 'Kornea terdeteksi!', 'fallback': 'Tersimpan (estimasi tengah)' };
-    showToast(msgMap[result.method] || 'Foto tersimpan!');
-    uploadBackground(imageB64, nama, pill);
-
   } catch(e) {
-    showToast('Error crop: ' + e.message);
+    toast('Error: ' + e.message);
   }
 
+  vid.play();
   btn.disabled = false;
 }
 
-async function uploadBackground(imageB64,nama,pill){
-  pill.textContent='Mengupload ke Drive...'; pill.classList.add('show');
-  try{
-    const res=await fetch(DRIVE_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({image:imageB64.split(',')[1],filename:nama})});
-    const data=await res.json();
-    if(data.status!=='ok')throw new Error(data.message||'error');
-    pill.innerHTML=`Tersimpan · <a href="${data.url}" target="_blank">Lihat</a>`;
-    setTimeout(()=>pill.classList.remove('show'),5000);
-  }catch(err){
-    pill.textContent='Drive gagal: '+err.message;
-    setTimeout(()=>pill.classList.remove('show'),3000);
+// ── Upload Drive ──
+async function uploadBg(b64, nama, pill) {
+  pill.textContent = 'Mengupload...';
+  pill.classList.add('show');
+  try {
+    const res  = await fetch(DRIVE_URL, {
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({image:b64, filename:nama})
+    });
+    const data = await res.json();
+    if (data.status !== 'ok') throw new Error(data.message);
+    pill.innerHTML = `Tersimpan · <a href="${data.url}" target="_blank">Lihat</a>`;
+    setTimeout(() => pill.classList.remove('show'), 5000);
+  } catch(e) {
+    pill.textContent = 'Drive gagal: ' + e.message;
+    setTimeout(() => pill.classList.remove('show'), 3000);
   }
 }
 
 // ── BLE ──
-async function handleBle(){
-  // Jika sudah konek → putuskan
-  if(isConnected){
-    try{ if(bleDevice&&bleDevice.gatt.connected) bleDevice.gatt.disconnect(); }
-    catch(e){}
+async function handleBle() {
+  if (isConnected) {
+    try { bleDevice && bleDevice.gatt.disconnect(); } catch(e) {}
     return;
   }
-
-  // Cek Bluetooth (lazy check — Bluefy inject SETELAH load)
   const bt = navigator.bluetooth || window.bluetooth;
-  if(!bt){
-    showToast('Buka di Bluefy (iPhone) atau Chrome Android');
-    return;
-  }
-
-  setBleState('connecting');
-  showToast('Mencari ESP32-Medis...');
-
-  try{
-    bleDevice = await bt.requestDevice({
-      filters:[{name:'ESP32-Medis'}, {services:[SERVICE_UUID]}]
-    });
-    bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+  if (!bt) { toast('Pakai Bluefy (iPhone) atau Chrome Android'); return; }
+  setBle('connecting');
+  toast('Mencari ESP32-Medis...');
+  try {
+    bleDevice = await bt.requestDevice({filters:[{name:'ESP32-Medis'},{services:[SERVICE_UUID]}]});
+    bleDevice.addEventListener('gattserverdisconnected', onBleDisconnect);
     const server  = await bleDevice.gatt.connect();
     const service = await server.getPrimaryService(SERVICE_UUID);
-    bleChar       = await service.getCharacteristic(CHAR_UUID);
-    isConnected   = true;
-    setBleState('connected', bleDevice.name);
-    showToast('Terhubung: ' + bleDevice.name);
-  } catch(e){
-    setBleState('idle');
-    const msg = e.name === 'NotFoundError'     ? 'Pencarian dibatalkan' :
-                e.name === 'SecurityError'     ? 'Butuh HTTPS — buka via GitHub Pages' :
-                e.name === 'NetworkError'      ? 'ESP32 tidak ditemukan, coba lagi' :
-                e.name === 'NotSupportedError' ? 'BLE tidak didukung di browser ini' :
-                e.name === 'TypeError'         ? 'Cek UUID di ESP32 sudah benar' :
+    bleChar = await service.getCharacteristic(CHAR_UUID);
+    isConnected = true;
+    setBle('on', bleDevice.name);
+    toast('Terhubung: ' + bleDevice.name);
+  } catch(e) {
+    setBle('off');
+    const msg = e.name==='NotFoundError' ? 'Pencarian dibatalkan' :
+                e.name==='SecurityError' ? 'Butuh HTTPS' :
                 'Error: ' + (e.message||e.name);
-    showToast(msg);
+    toast(msg);
   }
 }
 
-function onDisconnected(){
-  isConnected=false; bleChar=null; ledState={B:false,W:false};
+function onBleDisconnect() {
+  isConnected = false; bleChar = null; ledState = {B:false,W:false};
   document.getElementById('cardBiru').classList.remove('on');
   document.getElementById('cardPutih').classList.remove('on');
-  setBleState('idle'); showToast('Bluetooth terputus');
+  setBle('off'); toast('Bluetooth terputus');
 }
 
-function setBleState(state,name){
-  const btn=document.getElementById('btnBle');
-  const badge=document.getElementById('bleBadge');
-  const btext=document.getElementById('bleBadgeText');
-  const blabel=document.getElementById('bleBtnLabel');
-  const cB=document.getElementById('cardBiru');
-  const cW=document.getElementById('cardPutih');
+function setBle(state, name) {
+  const btn   = document.getElementById('btnBle');
+  const badge = document.getElementById('bleBadge');
+  const txt   = document.getElementById('bleText');
+  const cB    = document.getElementById('cardBiru');
+  const cW    = document.getElementById('cardPutih');
   btn.classList.remove('connected','connecting');
-  badge.classList.remove('connected');
-  if(state==='connected'){
+  badge.classList.remove('on');
+  if (state==='on') {
     btn.classList.add('connected');
-    badge.classList.add('connected');
-    btext.textContent=name||'Terhubung';
-    blabel.textContent='Putuskan';
-    cB.classList.remove('disabled-card');
-    cW.classList.remove('disabled-card');
-  } else if(state==='connecting'){
+    badge.classList.add('on');
+    txt.textContent = name||'Terhubung';
+    cB.classList.remove('disabled');
+    cW.classList.remove('disabled');
+  } else if (state==='connecting') {
     btn.classList.add('connecting');
-    btext.textContent='Menghubungkan...';
-    blabel.textContent='Menghubungkan...';
-    cB.classList.add('disabled-card');
-    cW.classList.add('disabled-card');
+    txt.textContent = '...';
+    cB.classList.add('disabled');
+    cW.classList.add('disabled');
   } else {
-    btext.textContent='BLE';
-    blabel.textContent='Bluetooth';
-    cB.classList.add('disabled-card');
-    cW.classList.add('disabled-card');
+    txt.textContent = 'BLE';
+    cB.classList.add('disabled');
+    cW.classList.add('disabled');
   }
 }
 
-async function kirimLED(cmd){
-  if(!bleChar)return;
-  try{await bleChar.writeValue(new TextEncoder().encode(cmd));}
-  catch(e){showToast('Kirim gagal: '+e.message);onDisconnected();}
+async function kirimLED(cmd) {
+  if (!bleChar) return;
+  try { await bleChar.writeValue(new TextEncoder().encode(cmd)); }
+  catch(e) { toast('LED gagal: ' + e.message); onBleDisconnect(); }
 }
 
-function toggleLED(warna){
-  if(!isConnected){showToast('Sambungkan Bluetooth dulu');return;}
-  ledState[warna]=!ledState[warna];
-  document.getElementById(warna==='B'?'cardBiru':'cardPutih').classList.toggle('on',ledState[warna]);
-  kirimLED(warna+':'+(ledState[warna]?1023:0));
+function toggleLED(w) {
+  if (!isConnected) { toast('Sambungkan Bluetooth dulu'); return; }
+  ledState[w] = !ledState[w];
+  document.getElementById(w==='B'?'cardBiru':'cardPutih').classList.toggle('on', ledState[w]);
+  kirimLED(w + ':' + (ledState[w] ? 1023 : 0));
 }
 </script>
-<!-- Modal nama foto — muncul SETELAH foto diambil -->
-<div class="modal-overlay hidden" id="modalOverlay">
-  <div class="modal-box" style="max-width:320px;padding:20px 18px;">
-    <div class="modal-title">Beri nama foto</div>
-    <div class="modal-sub" id="modalPreviewInfo">Foto berhasil diambil</div>
-    <label class="modal-label">Nama Pasien</label>
-    <input class="modal-input" id="inputNama" type="text" placeholder="Contoh: Budi Santoso" autocomplete="off" style="margin-bottom:10px;" onkeydown="if(event.key==='Enter')simpanFoto()"/>
-    <label class="modal-label">Pilih Mata</label>
-    <div class="mata-group" style="margin-bottom:14px;">
-      <button class="mata-btn selected" id="btnOD" onclick="pilihMata('OD')">Kanan (OD)</button>
-      <button class="mata-btn" id="btnOS" onclick="pilihMata('OS')">Kiri (OS)</button>
-    </div>
-    <button class="modal-confirm" id="btnSimpan" onclick="simpanFoto()" type="button">💾 Simpan ke Galeri</button>
-    <button onclick="batalSimpan()" style="width:100%;padding:10px;border:none;background:none;color:#888;font-size:13px;cursor:pointer;margin-top:8px;">Buang foto ini</button>
-  </div>
-</div>
 </body>
 </html>

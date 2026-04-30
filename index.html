@@ -507,13 +507,15 @@ canvas { display:none; }
 </div>
 
 <script>
+function onOpenCvReady() { cvReady = true; }
+function onOpenCvError() { cvReady = false; }
+
 'use strict';
 
 // ── Config ──
 // ── WiFi ESP32 Config ──
 // GANTI IP INI sesuai Serial Monitor ESP32
 // Contoh: '192.168.1.105' atau 'scancornea.local'
-let ESP32_IP  = 'scancornea.local'; // ← GANTI INI
 let ESP32_IP  = localStorage.getItem('esp32_ip') || '';
 let ESP32_URL = ESP32_IP ? 'http://' + ESP32_IP : '';
 let wifiConnected = false;
@@ -749,8 +751,6 @@ const dCvs = document.createElement('canvas');
 dCvs.width = dCvs.height = DETECT_SIZE;
 const dCtx = dCvs.getContext('2d');
 
-function onOpenCvReady() { cvReady = true; }
-function onOpenCvError() { cvReady = false; }
 
 function cropKornea(srcCanvas) {
   return new Promise(resolve => {

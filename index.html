@@ -1092,5 +1092,69 @@ function toggleLED(w) {
   kirimLED(w+':'+(ledState[w]?1023:0));
 }
 </script>
+
+<!-- ══ GALERI SD CARD ══ -->
+<div id="galeriPanel" class="hidden">
+  <div class="galeri-statusbar">
+    <button class="galeri-back" onclick="tutupGaleri()">
+      <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 2L2 8l6 6"/></svg>
+      Kembali
+    </button>
+    <div class="galeri-title-bar">SD Card</div>
+    <button class="galeri-refresh" onclick="bukaGaleri()">↻</button>
+  </div>
+  <div class="galeri-strip" id="galeriStrip">Memuat...</div>
+  <div id="galeriGrid"></div>
+</div>
+
+<!-- ══ MODAL FULLSCREEN FOTO ══ -->
+<div id="fotoModal" class="hidden">
+  <div class="foto-modal-nav">
+    <button class="foto-modal-back" onclick="tutupFotoModal()">
+      <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 2L2 8l6 6"/></svg>
+      Galeri
+    </button>
+    <span class="foto-modal-name" id="fotoModalNama"></span>
+    <button class="foto-modal-del" onclick="hapusFotoModal()">Hapus</button>
+  </div>
+  <div class="foto-modal-viewer">
+    <div class="foto-modal-spinner" id="fotoModalSpinner"></div>
+    <img id="fotoModalImg" src="" alt="" style="display:none;"/>
+  </div>
+  <div class="foto-modal-bottom">
+    <button class="foto-modal-btn" onclick="simpanFotoModal()">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      <span>Simpan</span>
+    </button>
+    <button class="foto-modal-btn" onclick="bagikanFotoModal()">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8">
+        <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+      </svg>
+      <span>Bagikan</span>
+    </button>
+  </div>
+</div>
+
+<!-- Modal bottom sheet -->
+<div id="modalSheet">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Beri nama foto</div>
+    <div class="sheet-sub normal" id="sheetInfo">Foto berhasil diambil</div>
+    <label class="sheet-label">Nama Pasien</label>
+    <input class="sheet-input" id="inputNama" type="text" placeholder="Contoh: Budi Santoso" autocomplete="off"/>
+    <button class="btn-save" onclick="simpanFoto()">Simpan ke Galeri</button>
+    <button class="btn-discard" onclick="batalFoto()">Buang foto ini</button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
 </body>
 </html>

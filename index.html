@@ -906,51 +906,127 @@ async function handleBle() {
     ledState = {B:false,W:false};
     document.getElementById('cardBiru').classList.remove('on');
     document.getElementById('cardPutih').classList.remove('on');
+    ESP32_IP = ''; ESP32_URL = '';
+    localStorage.removeItem('esp32_ip');
     toast('Terputus dari ESP32');
     return;
   }
 
-  // Minta IP jika belum ada
-  if (!ESP32_IP) {
-    const ip = prompt(
-      'Masukkan IP ESP32\n(lihat di Serial Monitor Arduino)\n\nContoh: 192.168.1.105',
-      ''
-    );
-    if (!ip || !ip.trim()) return;
-    ESP32_IP  = ip.trim().replace(/^https?:\/\//,'');
-    ESP32_URL = 'http://' + ESP32_IP;
-    localStorage.setItem('esp32_ip', ESP32_IP);
+  // Coba IP tersimpan dulu
+  const savedIP = localStorage.getItem('esp32_ip');
+  if (savedIP) {
+    setWifi('connecting'); toast('Menghubungi ESP32...');
+    const ok = await cobaKonek(savedIP);
+    if (ok) return;
+    // IP lama tidak valid, scan ulang
+    localStorage.removeItem('esp32_ip');
   }
 
+  // Auto scan IP di jaringan lokal
   setWifi('connecting');
-  toast('Menghubungi ESP32...');
-
-  try {
-    // Gunakan JSONP untuk bypass mixed content HTTPS→HTTP
-    const data = await jsonpFetch(ESP32_URL + '/api/status');
-    isConnected = true;
-    const label = data.ip || ESP32_IP;
-    setWifi('on', label);
-    toast('✓ Terhubung ke ESP32 (' + label + ')');
-  } catch(e) {
-    // Fallback: coba fetch biasa (untuk Android Chrome dengan flag)
-    try {
-      const res = await fetch(ESP32_URL + '/api/status', {mode:'cors', signal:AbortSignal.timeout(5000)});
-      if (res.ok) {
-        const d = await res.json();
-        isConnected = true;
-        setWifi('on', d.ip || ESP32_IP);
-        toast('✓ Terhubung ke ESP32');
-        return;
-      }
-    } catch(_) {}
+  toast('🔍 Mencari ESP32 di jaringan...');
+  const ip = await scanESP32();
+  if (ip) {
+    const ok = await cobaKonek(ip);
+    if (ok) {
+      localStorage.setItem('esp32_ip', ip);
+    }
+  } else {
     setWifi('off');
-    ESP32_IP = '';
-    ESP32_URL = '';
-    localStorage.removeItem('esp32_ip');
-    toast('Gagal: pastikan HP dan ESP32 satu WiFi, lalu coba lagi');
+    toast('ESP32 tidak ditemukan — pastikan satu WiFi');
   }
 }
+
+// Coba konek ke satu IP
+async function cobaKonek(ip) {
+  try {
+    ESP32_IP  = ip;
+    ESP32_URL = 'http://' + ip;
+    const data = await jsonpFetch(ESP32_URL + '/api/status');
+    if (data && data.status === 'ok') {
+      isConnected = true;
+      setWifi('on', data.ip || ip);
+      toast('✓ Terhubung ke ESP32 (' + ip + ')');
+      return true;
+    }
+  } catch(_) {}
+  ESP32_IP = ''; ESP32_URL = '';
+  return false;
+}
+
+// Scan IP otomatis di subnet yang sama
+async function scanESP32() {
+  // Dapatkan subnet dari RTCPeerConnection (trick browser)
+  let subnet = '192.168.1';
+  try {
+    const pc = new RTCPeerConnection({iceServers:[]});
+    pc.createDataChannel('');
+    await pc.createOffer().then(o => pc.setLocalDescription(o));
+    await new Promise(r => setTimeout(r, 500));
+    const sdp = pc.localDescription?.sdp || '';
+    pc.close();
+    const ipMatch = sdp.match(/\d+\.\d+\.\d+\.\d+/g) || [];
+    const localIP = ipMatch.find(ip => ip.startsWith('192.168') || ip.startsWith('10.'));
+    if (localIP) {
+      subnet = localIP.split('.').slice(0,3).join('.');
+      toast('🔍 Scan jaringan ' + subnet + '.x...');
+    }
+  } catch(_) {}
+
+  // Scan semua IP di subnet secara paralel (batch 20)
+  // ESP32 biasanya dapat IP .100-.150 dari DHCP
+  const prioritas = [];
+  // Prioritas: .1-.10 (router area), .100-.200 (DHCP range umum)
+  for (let i=1; i<=10; i++) prioritas.push(i);
+  for (let i=100; i<=200; i++) prioritas.push(i);
+  for (let i=11; i<=99; i++) prioritas.push(i);
+  for (let i=201; i<=254; i++) prioritas.push(i);
+
+  const BATCH = 20; // scan 20 IP sekaligus
+  for (let b=0; b<prioritas.length; b+=BATCH) {
+    const batch = prioritas.slice(b, b+BATCH);
+    const results = await Promise.allSettled(
+      batch.map(i => scanSatuIP(subnet + '.' + i))
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value) return r.value;
+    }
+    // Update progress
+    const pct = Math.round((b/prioritas.length)*100);
+    if (pct % 20 === 0) toast('🔍 Scan ' + pct + '%...');
+  }
+  return null;
+}
+
+// Scan satu IP - pakai JSONP dengan timeout pendek
+function scanSatuIP(ip) {
+  return new Promise((resolve) => {
+    const cb = '_s' + ip.replace(/\./g,'_');
+    const script = document.createElement('script');
+    const timer = setTimeout(() => {
+      delete window[cb];
+      if (script.parentNode) document.head.removeChild(script);
+      resolve(null);
+    }, 800); // timeout 800ms per IP
+
+    window[cb] = (data) => {
+      clearTimeout(timer);
+      delete window[cb];
+      if (script.parentNode) document.head.removeChild(script);
+      if (data && data.device === 'ScanCornea') resolve(ip);
+      else resolve(null);
+    };
+    script.src = 'http://' + ip + '/api/status?cb=' + cb;
+    script.onerror = () => {
+      clearTimeout(timer);
+      delete window[cb];
+      if (script.parentNode) document.head.removeChild(script);
+      resolve(null);
+    };
+    document.head.appendChild(script);
+  });
+}
+
 
 function setWifi(state, name) {
   const btn  = document.getElementById('btnBle');

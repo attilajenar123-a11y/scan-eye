@@ -506,51 +506,30 @@ canvas { display:none; }
   </div>
 </div>
 
+
 <script>
+'use strict';
+
+// ── OpenCV callbacks (harus di atas) ──
 function onOpenCvReady() { cvReady = true; }
 function onOpenCvError() { cvReady = false; }
 
-'use strict';
-
-// ── Config ──
-// ── WiFi ESP32 Config ──
-// GANTI IP INI sesuai Serial Monitor ESP32
-// Contoh: '192.168.1.105' atau 'scancornea.local'
-let ESP32_IP  = localStorage.getItem('esp32_ip') || '';
-let ESP32_URL = ESP32_IP ? 'http://' + ESP32_IP : '';
-let wifiConnected = false;
-
-// ── JSONP helper — bypass mixed content HTTPS→HTTP ──
-function jsonpFetch(url) {
-  return new Promise((resolve, reject) => {
-    const cb = '_jcb' + Date.now() + Math.floor(Math.random()*1000);
-    const script = document.createElement('script');
-    const timer = setTimeout(() => {
-      cleanup(); reject(new Error('Timeout'));
-    }, 6000);
-    function cleanup() {
-      clearTimeout(timer);
-      delete window[cb];
-      if (script.parentNode) document.head.removeChild(script);
-    }
-    window[cb] = (data) => { cleanup(); resolve(data); };
-    script.src = url + (url.includes('?')?'&':'?') + 'cb=' + cb;
-    script.onerror = () => { cleanup(); reject(new Error('Network error')); };
-    document.head.appendChild(script);
-  });
-}
-
-
-const DRIVE_URL = 'https://script.google.com/macros/s/AKfycby5KuXspaAEF9LDY9QEU5gcMRH_73H4px6pfkruq3zNdT7Tqy_I5orMzYRwv4ljszAg/exec';
+// ── BLE Config ──
+const SERVICE_UUID = '12345678-1234-5678-1234-56789abcdef0';
+const CHAR_UUID    = '12345678-1234-5678-1234-56789abcdef1';
+const CHAR_TX_UUID = '12345678-1234-5678-1234-56789abcdef2';
+const DRIVE_URL    = 'https://script.google.com/macros/s/AKfycby5KuXspaAEF9LDY9QEU5gcMRH_73H4px6pfkruq3zNdT7Tqy_I5orMzYRwv4ljszAg/exec';
 
 // ── State ──
+let bleDevice=null, bleChar=null, bleCharTx=null;
+let isConnected=false;
+let ledState={B:false,W:false};
+let sdFotoList=[], galeriOpen=false;
+let notifyCallback=null;
 let kameraAktif=false, scale=1, p0dist=0, p0scale=1;
 let filterOn=false;
-let isConnected=false;     // WiFi ESP32 terhubung
-let ledState={B:false, W:false};
-let sdFotoList=[];
-let galeriOpen=false;
 let fotoCounter=1;
+let mataPasien='OD';
 let pendingBlob=null;
 let cvReady=false;
 let toastTimer;
@@ -567,20 +546,23 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
 }
 
+// ── Pilih mata ──
+function pilihMata(m) {
+  mataPasien = m;
+  document.getElementById('btnOD').classList.toggle('active', m==='OD');
+  document.getElementById('btnOS').classList.toggle('active', m==='OS');
+}
 
-
-// ── Buat nama file ──
-// Format: tahun_jam-menit_lampu_nama_nomor
-// lampu: putih / biru / putih-biru / nolampu
+// ── Nama file ──
 function buatNama(nama) {
-  const d   = new Date();
+  const d = new Date();
   const thn = d.getFullYear();
   const bln = String(d.getMonth()+1).padStart(2,'0');
   const tgl = String(d.getDate()).padStart(2,'0');
   const jam = String(d.getHours()).padStart(2,'0');
   const mnt = String(d.getMinutes()).padStart(2,'0');
   const dtk = String(d.getSeconds()).padStart(2,'0');
-  const n  = (nama||'pasien').replace(/[^a-zA-Z0-9 ]/g,'').trim().toLowerCase().replace(/ +/g,'_') || 'pasien';
+  const n = (nama||'pasien').replace(/[^a-zA-Z0-9 ]/g,'').trim().toLowerCase().replace(/ +/g,'_')||'pasien';
   const no = String(fotoCounter).padStart(3,'0');
   return `${thn}_${bln}_${tgl}_${jam}-${mnt}-${dtk}_${n}_${no}`;
 }
@@ -591,13 +573,6 @@ function bukaModal(blob, info) {
   document.getElementById('inputNama').value = '';
   document.getElementById('sheetInfo').textContent = info || 'Foto berhasil diambil';
   document.getElementById('sheetInfo').className = info && info.includes('terdeteksi') ? 'sheet-sub' : 'sheet-sub normal';
-  // Tampilkan info lampu yang aktif saat foto diambil
-  const biru  = ledState.B;
-  const putih = ledState.W;
-  const infoLampu = (biru && putih) ? 'Putih + Biru' :
-                     biru            ? 'Biru'          :
-                     putih           ? 'Putih'         : 'Tidak ada';
-  document.getElementById('sheetLampuVal').textContent = infoLampu;
   document.getElementById('modalSheet').classList.add('show');
   setTimeout(() => document.getElementById('inputNama').focus(), 400);
 }
@@ -622,42 +597,26 @@ function simpanFoto() {
     const dataUrl = reader.result;
     const b64 = dataUrl.split(',')[1];
     const pill = document.getElementById('uploadPill');
-
-    // iOS detection
-    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
-                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
 
     if (isIOS) {
-      // iOS: gunakan navigator.share — share sheet muncul otomatis
       const file = new File([blob], namaFile, {type:'image/jpeg'});
       if (navigator.share && navigator.canShare && navigator.canShare({files:[file]})) {
-        // Tampilkan petunjuk bersamaan dengan share sheet
         setTimeout(() => toast('👇 Tap "Save Image" untuk simpan'), 600);
         navigator.share({files:[file], title:'ScanCornea'})
-          .then(() => toast('✓ Tersimpan ke galeri!'))
-          .catch(e => { if (e.name !== 'AbortError') toast('Gagal: ' + e.message); });
-      } else {
-        // Fallback: buka di tab baru, user tahan untuk simpan
-        const url = URL.createObjectURL(blob);
-        window.open(url);
-        toast('Tahan gambar → Save to Photos');
+          .then(() => toast('✓ Tersimpan!'))
+          .catch(e => { if(e.name!=='AbortError') toast('Gagal: '+e.message); });
       }
     } else {
-      // Android: download langsung
       const a = document.createElement('a');
-      a.href = dataUrl;
-      a.download = namaFile;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
+      a.href = dataUrl; a.download = namaFile;
+      a.style.display='none';
+      document.body.appendChild(a); a.click();
       setTimeout(() => document.body.removeChild(a), 500);
-      toast('✓ Tersimpan: ' + namaFile);
+      toast('✓ Tersimpan: '+namaFile);
     }
 
-    // Auto upload Drive
     uploadBg(b64, namaFile, pill);
-
-    // Kirim ke SD card via BLE (background, jika terhubung)
     if (isConnected && bleChar) {
       setTimeout(() => kirimFotoKeSD(blob, namaFile), 800);
     }
@@ -671,30 +630,24 @@ function batalFoto() {
   toast('Foto dibuang');
 }
 
-// Enter key di input
 document.getElementById('inputNama').addEventListener('keydown', e => {
   if (e.key === 'Enter') simpanFoto();
 });
-
-// Tap backdrop untuk tutup modal
 document.getElementById('modalSheet').addEventListener('click', e => {
   if (e.target === document.getElementById('modalSheet')) batalFoto();
 });
 
 // ── Kamera ──
 async function startCamera() {
-  // Stop stream lama jika ada
   if (vid.srcObject) {
     vid.srcObject.getTracks().forEach(t => t.stop());
     vid.srcObject = null;
   }
-
   const constraints = [
-    {video:{facingMode:{exact:'environment'}}},
-    {video:{facingMode:'environment'}},
+    {video:{facingMode:{exact:'environment'}}} ,
+    {video:{facingMode:'environment'}} ,
     {video:true}
   ];
-
   for (const c of constraints) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia(c);
@@ -706,9 +659,7 @@ async function startCamera() {
         scale = 1; applyZoom(false);
       };
       return;
-    } catch(e) {
-      // coba constraint berikutnya
-    }
+    } catch(e) { continue; }
   }
   toast('Kamera tidak bisa diakses');
 }
@@ -724,704 +675,422 @@ function applyZoom(show) {
   b.style.display = show ? 'block' : 'none';
 }
 camWrap.addEventListener('touchstart', e => {
-  if (e.touches.length === 2) { e.preventDefault(); p0dist = dist2(e.touches); p0scale = scale; }
+  if (e.touches.length===2) { e.preventDefault(); p0dist=dist2(e.touches); p0scale=scale; }
 }, {passive:false});
 camWrap.addEventListener('touchmove', e => {
-  if (e.touches.length === 2) { e.preventDefault(); scale = Math.min(6, Math.max(1, p0scale * dist2(e.touches) / p0dist)); applyZoom(true); }
+  if (e.touches.length===2) { e.preventDefault(); scale=Math.min(6,Math.max(1,p0scale*dist2(e.touches)/p0dist)); applyZoom(true); }
 }, {passive:false});
-let lastTap = 0;
+let lastTap=0;
 camWrap.addEventListener('touchend', e => {
-  if (e.touches.length > 0) return;
-  const now = Date.now();
-  if (now - lastTap < 280) { scale = 1; applyZoom(true); }
-  lastTap = now;
+  if (e.touches.length>0) return;
+  const now=Date.now();
+  if (now-lastTap<280) { scale=1; applyZoom(true); }
+  lastTap=now;
 });
 
 // ── Filter ──
 function toggleFilter() {
-  filterOn = !filterOn;
+  filterOn=!filterOn;
   vid.classList.toggle('filter-on', filterOn);
   document.getElementById('filterBtn').classList.toggle('on', filterOn);
-  document.getElementById('filterLabel').textContent = filterOn ? 'Filter ON' : 'Filter';
+  document.getElementById('filterLabel').textContent = filterOn?'Filter ON':'Filter';
 }
 
-// ── OpenCV ──
-const DETECT_SIZE = 320;
-const dCvs = document.createElement('canvas');
-dCvs.width = dCvs.height = DETECT_SIZE;
-const dCtx = dCvs.getContext('2d');
-
+// ── OpenCV crop kornea ──
+const DETECT_SIZE=320;
+const dCvs=document.createElement('canvas');
+dCvs.width=dCvs.height=DETECT_SIZE;
+const dCtx=dCvs.getContext('2d');
 
 function cropKornea(srcCanvas) {
   return new Promise(resolve => {
-    const ctx = srcCanvas.getContext('2d');
-    const w = srcCanvas.width, h = srcCanvas.height;
-
-    if (cvReady && typeof cv !== 'undefined' && cv.Mat) {
+    const ctx=srcCanvas.getContext('2d');
+    const w=srcCanvas.width, h=srcCanvas.height;
+    if (cvReady && typeof cv!=='undefined' && cv.Mat) {
       try {
-        const sz = DETECT_SIZE;
-        dCvs.width = sz; dCvs.height = sz;
-        dCtx.drawImage(srcCanvas, 0, 0, sz, sz);
-        const src = cv.imread(dCvs);
-        const gray = new cv.Mat(), blur = new cv.Mat(), edges = new cv.Mat();
-        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-        cv.bilateralFilter(gray, blur, 11, 17, 17);
-        cv.Canny(blur, edges, 30, 200);
-        const k = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3,3));
-        cv.dilate(edges, edges, k);
-        const contours = new cv.MatVector(), hier = new cv.Mat();
-        cv.findContours(edges, contours, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-        const cx0 = sz/2, cy0 = sz/2;
-        let best = null, bestScore = -1;
-        for (let i = 0; i < contours.size(); i++) {
-          const cnt = contours.get(i);
-          const area = cv.contourArea(cnt);
-          const minA = Math.PI * Math.pow(sz*0.18, 2);
-          const maxA = Math.PI * Math.pow(sz*0.54, 2);
-          if (area < minA || area > maxA) continue;
-          const peri = cv.arcLength(cnt, true);
-          if (peri === 0) continue;
-          const circ = 4 * Math.PI * area / (peri * peri);
-          if (circ < 0.45) continue;
-          const M = cv.moments(cnt);
-          if (M.m00 === 0) continue;
-          const cx = M.m10/M.m00, cy = M.m01/M.m00;
-          const dist = Math.hypot(cx-cx0, cy-cy0);
-          if (dist > sz*0.28) continue;
-          const score = area * circ / (1 + dist*0.5);
-          if (score > bestScore) { bestScore = score; best = {cnt, cx, cy}; }
+        dCvs.width=DETECT_SIZE; dCvs.height=DETECT_SIZE;
+        dCtx.drawImage(srcCanvas,0,0,DETECT_SIZE,DETECT_SIZE);
+        const src=cv.imread(dCvs), gray=new cv.Mat(), blur=new cv.Mat(), edges=new cv.Mat();
+        cv.cvtColor(src,gray,cv.COLOR_RGBA2GRAY);
+        cv.bilateralFilter(gray,blur,11,17,17);
+        cv.Canny(blur,edges,30,200);
+        const k=cv.getStructuringElement(cv.MORPH_RECT,new cv.Size(3,3));
+        cv.dilate(edges,edges,k);
+        const contours=new cv.MatVector(), hier=new cv.Mat();
+        cv.findContours(edges,contours,hier,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
+        const cx0=DETECT_SIZE/2, cy0=DETECT_SIZE/2;
+        let best=null, bestScore=-1;
+        for (let i=0;i<contours.size();i++) {
+          const cnt=contours.get(i), area=cv.contourArea(cnt);
+          const minA=Math.PI*Math.pow(DETECT_SIZE*0.18,2), maxA=Math.PI*Math.pow(DETECT_SIZE*0.54,2);
+          if (area<minA||area>maxA) continue;
+          const peri=cv.arcLength(cnt,true);
+          if (peri===0) continue;
+          const circ=4*Math.PI*area/(peri*peri);
+          if (circ<0.45) continue;
+          const M=cv.moments(cnt);
+          if (M.m00===0) continue;
+          const cx=M.m10/M.m00, cy=M.m01/M.m00;
+          const dist=Math.hypot(cx-cx0,cy-cy0);
+          if (dist>DETECT_SIZE*0.28) continue;
+          const score=area*circ/(1+dist*0.5);
+          if (score>bestScore) { bestScore=score; best={cnt,cx,cy}; }
         }
         if (best) {
-          const circle = cv.minEnclosingCircle(best.cnt);
-          const sx = w/sz, sy = h/sz;
-          const rcx = circle.center.x*sx, rcy = circle.center.y*sy;
-          const rr  = circle.radius * Math.max(sx,sy);
-          const pad = rr*0.10, side = (rr+pad)*2;
-          const ex = Math.max(0, Math.round(rcx-rr-pad));
-          const ey = Math.max(0, Math.round(rcy-rr-pad));
-          const ew = Math.min(Math.round(side), w-ex);
-          const eh = Math.min(Math.round(side), h-ey);
-          const crop = ctx.getImageData(ex, ey, ew, eh);
-          const out = document.createElement('canvas');
-          out.width = out.height = 512;
-          const t = document.createElement('canvas');
-          t.width = ew; t.height = eh;
-          t.getContext('2d').putImageData(crop, 0, 0);
-          out.getContext('2d').drawImage(t, 0, 0, ew, eh, 0, 0, 512, 512);
-          src.delete(); gray.delete(); blur.delete(); edges.delete();
-          k.delete(); contours.delete(); hier.delete();
-          resolve({canvas:out, cropped:true});
+          const circle=cv.minEnclosingCircle(best.cnt);
+          const sx=w/DETECT_SIZE, sy=h/DETECT_SIZE;
+          const rcx=circle.center.x*sx, rcy=circle.center.y*sy;
+          const rr=circle.radius*Math.max(sx,sy);
+          const pad=rr*0.10, side=(rr+pad)*2;
+          const ex=Math.max(0,Math.round(rcx-rr-pad)), ey=Math.max(0,Math.round(rcy-rr-pad));
+          const ew=Math.min(Math.round(side),w-ex), eh=Math.min(Math.round(side),h-ey);
+          const crop=ctx.getImageData(ex,ey,ew,eh);
+          const out=document.createElement('canvas'); out.width=out.height=512;
+          const t=document.createElement('canvas'); t.width=ew; t.height=eh;
+          t.getContext('2d').putImageData(crop,0,0);
+          out.getContext('2d').drawImage(t,0,0,ew,eh,0,0,512,512);
+          src.delete();gray.delete();blur.delete();edges.delete();k.delete();contours.delete();hier.delete();
+          resolve({canvas:out,cropped:true});
           return;
         }
-        src.delete(); gray.delete(); blur.delete(); edges.delete();
-        k.delete(); contours.delete(); hier.delete();
+        src.delete();gray.delete();blur.delete();edges.delete();k.delete();contours.delete();hier.delete();
       } catch(e) {}
     }
-    // Fallback: crop tengah
-    const r = Math.min(w,h)*0.38, pad = r*0.10, side = (r+pad)*2;
-    const ex = Math.max(0, Math.round(w/2-r-pad));
-    const ey = Math.max(0, Math.round(h*0.47-r-pad));
-    const ew = Math.min(Math.round(side), w-ex);
-    const eh = Math.min(Math.round(side), h-ey);
-    const crop = ctx.getImageData(ex, ey, ew, eh);
-    const out = document.createElement('canvas');
-    out.width = out.height = 512;
-    const t = document.createElement('canvas');
-    t.width = ew; t.height = eh;
-    t.getContext('2d').putImageData(crop, 0, 0);
-    out.getContext('2d').drawImage(t, 0, 0, ew, eh, 0, 0, 512, 512);
-    resolve({canvas:out, cropped:false});
+    // Fallback
+    const r=Math.min(w,h)*0.38, pad=r*0.10, side=(r+pad)*2;
+    const ex=Math.max(0,Math.round(w/2-r-pad)), ey=Math.max(0,Math.round(h*0.47-r-pad));
+    const ew=Math.min(Math.round(side),w-ex), eh=Math.min(Math.round(side),h-ey);
+    const crop=ctx.getImageData(ex,ey,ew,eh);
+    const out=document.createElement('canvas'); out.width=out.height=512;
+    const t=document.createElement('canvas'); t.width=ew; t.height=eh;
+    t.getContext('2d').putImageData(crop,0,0);
+    out.getContext('2d').drawImage(t,0,0,ew,eh,0,0,512,512);
+    resolve({canvas:out,cropped:false});
   });
 }
 
 // ── Jepret ──
 async function jepret() {
-  if (!kameraAktif || !vid.videoWidth) {
-    await startCamera(); toast('Kamera menyala, coba lagi'); return;
-  }
-  const btn = document.getElementById('btnJepret');
-  btn.disabled = true;
-  const flash = document.getElementById('flashEl');
+  if (!kameraAktif||!vid.videoWidth) { await startCamera(); toast('Kamera menyala, coba lagi'); return; }
+  const btn=document.getElementById('btnJepret');
+  btn.disabled=true;
+  const flash=document.getElementById('flashEl');
   flash.classList.add('flash');
-  setTimeout(() => flash.classList.remove('flash'), 150);
+  setTimeout(()=>flash.classList.remove('flash'),150);
 
-  const canvas = document.getElementById('cvs');
-  const ctx = canvas.getContext('2d');
-  const vw = vid.videoWidth, vh = vid.videoHeight;
-  const cw = vw/scale, ch = vh/scale;
-  canvas.width = vw; canvas.height = vh;
-  ctx.drawImage(vid, (vw-cw)/2, (vh-ch)/2, cw, ch, 0, 0, vw, vh);
+  const canvas=document.getElementById('cvs');
+  const ctx=canvas.getContext('2d');
+  const vw=vid.videoWidth, vh=vid.videoHeight;
+  const cw=vw/scale, ch=vh/scale;
+  canvas.width=vw; canvas.height=vh;
+  ctx.drawImage(vid,(vw-cw)/2,(vh-ch)/2,cw,ch,0,0,vw,vh);
 
   if (filterOn) {
-    const d = ctx.getImageData(0,0,vw,vh);
-    for (let i=0; i<d.data.length; i+=4) {
-      const r=d.data[i], g=d.data[i+1];
-      const lum = 0.299*r + 0.587*g + 0.114*d.data[i+2];
-      d.data[i]   = Math.min(255, r + lum*0.05);
-      d.data[i+1] = Math.min(255, g + lum*0.03);
-      d.data[i+2] = 0;
+    const d=ctx.getImageData(0,0,vw,vh);
+    for (let i=0;i<d.data.length;i+=4) {
+      const r=d.data[i],g=d.data[i+1];
+      const lum=0.299*r+0.587*g+0.114*d.data[i+2];
+      d.data[i]=Math.min(255,r+lum*0.05);
+      d.data[i+1]=Math.min(255,g+lum*0.03);
+      d.data[i+2]=0;
     }
-    ctx.putImageData(d, 0, 0);
+    ctx.putImageData(d,0,0);
   }
 
   try {
-    const {canvas:outCanvas, cropped} = await cropKornea(canvas);
+    const {canvas:outCanvas,cropped} = await cropKornea(canvas);
     outCanvas.toBlob(blob => {
-      const info = cropped ? '✓ Kornea terdeteksi' : 'Foto penuh';
-      bukaModal(blob, info);
+      bukaModal(blob, cropped?'✓ Kornea terdeteksi':'Foto penuh');
     }, 'image/jpeg', 0.92);
-  } catch(e) {
-    toast('Error: ' + e.message);
-  }
+  } catch(e) { toast('Error: '+e.message); }
 
   vid.play();
-  btn.disabled = false;
+  btn.disabled=false;
 }
 
 // ── Upload Drive ──
 async function uploadBg(b64, nama, pill) {
-  pill.textContent = 'Mengupload...';
+  pill.textContent='Mengupload...';
   pill.classList.add('show');
   try {
-    const res  = await fetch(DRIVE_URL, {
-      method:'POST',
-      headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({image:b64, filename:nama})
-    });
-    const data = await res.json();
-    if (data.status !== 'ok') throw new Error(data.message);
-    pill.innerHTML = `Tersimpan · <a href="${data.url}" target="_blank">Lihat</a>`;
-    setTimeout(() => pill.classList.remove('show'), 5000);
+    const res=await fetch(DRIVE_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({image:b64,filename:nama})});
+    const data=await res.json();
+    if (data.status!=='ok') throw new Error(data.message);
+    pill.innerHTML=`Tersimpan · <a href="${data.url}" target="_blank">Lihat</a>`;
+    setTimeout(()=>pill.classList.remove('show'),5000);
   } catch(e) {
-    pill.textContent = 'Drive gagal: ' + e.message;
-    setTimeout(() => pill.classList.remove('show'), 3000);
+    pill.textContent='Drive gagal: '+e.message;
+    setTimeout(()=>pill.classList.remove('show'),3000);
   }
 }
 
-// ── WiFi ESP32 ──
-async function handleBle() {
-  if (isConnected) {
-    isConnected = false;
-    setWifi('off');
-    ledState = {B:false,W:false};
-    document.getElementById('cardBiru').classList.remove('on');
-    document.getElementById('cardPutih').classList.remove('on');
-    ESP32_IP = ''; ESP32_URL = '';
-    localStorage.removeItem('esp32_ip');
-    toast('Terputus dari ESP32');
+// ── BLE Notify ──
+function onBleNotify(event) {
+  const val=new TextDecoder().decode(event.target.value);
+  if (notifyCallback) notifyCallback(val);
+}
+
+// ── Kirim foto ke SD (200×200) ──
+async function kirimFotoKeSD(blob, namaFile) {
+  if (!isConnected||!bleChar) return false;
+  toast('📤 Kirim ke SD card...');
+  try {
+    // Resize ke 200×200
+    const resized = await new Promise(resolve => {
+      const img=new Image(), url=URL.createObjectURL(blob);
+      img.onload=()=>{
+        const c=document.createElement('canvas');
+        c.width=c.height=200;
+        c.getContext('2d').drawImage(img,0,0,200,200);
+        URL.revokeObjectURL(url);
+        c.toBlob(resolve,'image/jpeg',0.85);
+      };
+      img.src=url;
+    });
+
+    // Convert ke base64
+    const b64=await new Promise(res=>{
+      const reader=new FileReader();
+      reader.onload=()=>res(reader.result.split(',')[1]);
+      reader.readAsDataURL(resized);
+    });
+
+    // Kirim ke ESP32
+    await bleChar.writeValue(new TextEncoder().encode('FOTO_START:'+namaFile));
+    await new Promise(r=>setTimeout(r,500));
+    const CHUNK=400;
+    for (let i=0;i<b64.length;i+=CHUNK) {
+      await bleChar.writeValue(new TextEncoder().encode('FOTO_CHUNK:'+b64.substring(i,i+CHUNK)));
+      await new Promise(r=>setTimeout(r,100));
+      if ((i/CHUNK)%5===0) toast('Kirim SD: '+Math.round(i/b64.length*100)+'%');
+    }
+    await new Promise(r=>setTimeout(r,300));
+    await bleChar.writeValue(new TextEncoder().encode('FOTO_END'));
+    await new Promise(r=>setTimeout(r,1000));
+    toast('✓ Tersimpan di SD!');
+    return true;
+  } catch(e) { toast('SD gagal: '+e.message); return false; }
+}
+
+// ── Galeri SD ──
+const thumbCache={};
+let fotoModalNamaAktif='';
+
+async function bukaGaleri() {
+  if (!isConnected) { toast('Sambungkan BLE dulu'); return; }
+  const panel=document.getElementById('galeriPanel');
+  const grid=document.getElementById('galeriGrid');
+  panel.classList.remove('hidden');
+  grid.innerHTML='<div class="galeri-loading" style="grid-column:1/-1"><div class="galeri-spinner"></div><span>Memuat dari SD...</span></div>';
+  document.getElementById('galeriStrip').textContent='Memuat...';
+  try {
+    notifyCallback=null;
+    const listRaw=await bleRequest('LIST',6000);
+    const listStr=listRaw.replace('LIST:','');
+    sdFotoList=listStr.length>0?listStr.split(',').filter(n=>n.length>0):[];
+    tampilGaleri();
+  } catch(e) {
+    grid.innerHTML='<div class="galeri-empty"><div class="galeri-empty-icon">⚠️</div><div class="galeri-empty-text">Gagal memuat</div></div>';
+    document.getElementById('galeriStrip').textContent='Gagal';
+  }
+}
+
+function tutupGaleri() { document.getElementById('galeriPanel').classList.add('hidden'); }
+
+function tampilGaleri() {
+  const grid=document.getElementById('galeriGrid');
+  const n=sdFotoList.length;
+  document.getElementById('galeriStrip').textContent=n===0?'SD card kosong':n+' foto';
+  if (n===0) {
+    grid.innerHTML='<div class="galeri-empty"><div class="galeri-empty-icon">📷</div><div class="galeri-empty-text">Belum ada foto</div></div>';
     return;
   }
-
-  // Coba IP tersimpan dulu
-  const savedIP = localStorage.getItem('esp32_ip');
-  if (savedIP) {
-    setWifi('connecting'); toast('Menghubungi ESP32...');
-    const ok = await cobaKonek(savedIP);
-    if (ok) return;
-    // IP lama tidak valid, scan ulang
-    localStorage.removeItem('esp32_ip');
-  }
-
-  // Auto scan IP di jaringan lokal
-  setWifi('connecting');
-  toast('🔍 Mencari ESP32 di jaringan...');
-  const ip = await scanESP32();
-  if (ip) {
-    const ok = await cobaKonek(ip);
-    if (ok) {
-      localStorage.setItem('esp32_ip', ip);
-    }
-  } else {
-    setWifi('off');
-    toast('ESP32 tidak ditemukan — pastikan satu WiFi');
-  }
-}
-
-// Coba konek ke satu IP
-async function cobaKonek(ip) {
-  try {
-    ESP32_IP  = ip;
-    ESP32_URL = 'http://' + ip;
-    const data = await jsonpFetch(ESP32_URL + '/api/status');
-    if (data && data.status === 'ok') {
-      isConnected = true;
-      setWifi('on', data.ip || ip);
-      toast('✓ Terhubung ke ESP32 (' + ip + ')');
-      return true;
-    }
-  } catch(_) {}
-  ESP32_IP = ''; ESP32_URL = '';
-  return false;
-}
-
-// Scan IP otomatis di subnet yang sama
-async function scanESP32() {
-  // Dapatkan subnet dari RTCPeerConnection (trick browser)
-  let subnet = '192.168.1';
-  try {
-    const pc = new RTCPeerConnection({iceServers:[]});
-    pc.createDataChannel('');
-    await pc.createOffer().then(o => pc.setLocalDescription(o));
-    await new Promise(r => setTimeout(r, 500));
-    const sdp = pc.localDescription?.sdp || '';
-    pc.close();
-    const ipMatch = sdp.match(/\d+\.\d+\.\d+\.\d+/g) || [];
-    const localIP = ipMatch.find(ip => ip.startsWith('192.168') || ip.startsWith('10.'));
-    if (localIP) {
-      subnet = localIP.split('.').slice(0,3).join('.');
-      toast('🔍 Scan jaringan ' + subnet + '.x...');
-    }
-  } catch(_) {}
-
-  // Scan semua IP di subnet secara paralel (batch 20)
-  // ESP32 biasanya dapat IP .100-.150 dari DHCP
-  const prioritas = [];
-  // Prioritas: .1-.10 (router area), .100-.200 (DHCP range umum)
-  for (let i=1; i<=10; i++) prioritas.push(i);
-  for (let i=100; i<=200; i++) prioritas.push(i);
-  for (let i=11; i<=99; i++) prioritas.push(i);
-  for (let i=201; i<=254; i++) prioritas.push(i);
-
-  const BATCH = 20; // scan 20 IP sekaligus
-  for (let b=0; b<prioritas.length; b+=BATCH) {
-    const batch = prioritas.slice(b, b+BATCH);
-    const results = await Promise.allSettled(
-      batch.map(i => scanSatuIP(subnet + '.' + i))
-    );
-    for (const r of results) {
-      if (r.status === 'fulfilled' && r.value) return r.value;
-    }
-    // Update progress
-    const pct = Math.round((b/prioritas.length)*100);
-    if (pct % 20 === 0) toast('🔍 Scan ' + pct + '%...');
-  }
-  return null;
-}
-
-// Scan satu IP - pakai JSONP dengan timeout pendek
-function scanSatuIP(ip) {
-  return new Promise((resolve) => {
-    const cb = '_s' + ip.replace(/\./g,'_');
-    const script = document.createElement('script');
-    const timer = setTimeout(() => {
-      delete window[cb];
-      if (script.parentNode) document.head.removeChild(script);
-      resolve(null);
-    }, 800); // timeout 800ms per IP
-
-    window[cb] = (data) => {
-      clearTimeout(timer);
-      delete window[cb];
-      if (script.parentNode) document.head.removeChild(script);
-      if (data && data.device === 'ScanCornea') resolve(ip);
-      else resolve(null);
-    };
-    script.src = 'http://' + ip + '/api/status?cb=' + cb;
-    script.onerror = () => {
-      clearTimeout(timer);
-      delete window[cb];
-      if (script.parentNode) document.head.removeChild(script);
-      resolve(null);
-    };
-    document.head.appendChild(script);
+  grid.innerHTML=sdFotoList.map(nama=>`
+    <div class="galeri-thumb" id="thumb_${CSS.escape(nama)}" onclick="lihatFoto('${nama}')">
+      <div class="thumb-loading-indicator"></div>
+      <span class="thumb-label">${nama.split('_').slice(-1)[0]?.replace('.jpg','')||nama}</span>
+    </div>`).join('');
+  sdFotoList.forEach((nama,i)=>{
+    if (!thumbCache[nama]) setTimeout(()=>loadThumb(nama),i*800);
+    else setThumb(nama,thumbCache[nama]);
   });
 }
 
+function setThumb(nama,url) {
+  const el=document.getElementById('thumb_'+CSS.escape(nama));
+  if (!el) return;
+  const label=nama.split('_').slice(-1)[0]?.replace('.jpg','')||nama;
+  el.innerHTML=`<img src="${url}" alt="${nama}" class="loaded"/><span class="thumb-label">${label}</span>`;
+}
 
-function setWifi(state, name) {
-  const btn  = document.getElementById('btnBle');
-  const badge= document.getElementById('bleBadge');
-  const txt  = document.getElementById('bleText');
-  const cB   = document.getElementById('cardBiru');
-  const cW   = document.getElementById('cardPutih');
+async function loadThumb(nama) {
+  if (!isConnected) return;
+  const b64=await downloadFotoDariSD(nama);
+  if (b64) { thumbCache[nama]='data:image/jpeg;base64,'+b64; setThumb(nama,thumbCache[nama]); }
+}
+
+function downloadFotoDariSD(nama) {
+  return new Promise(resolve=>{
+    let chunks='';
+    const prev=notifyCallback;
+    const timer=setTimeout(()=>{notifyCallback=prev;resolve(null);},12000);
+    notifyCallback=(val)=>{
+      if (val.startsWith('CHUNK:')) chunks+=val.substring(6);
+      else if (val==='DONE') {clearTimeout(timer);notifyCallback=prev;resolve(chunks||null);}
+      else if (val.startsWith('ERR:')) {clearTimeout(timer);notifyCallback=prev;resolve(null);}
+    };
+    bleChar.writeValue(new TextEncoder().encode('GET:'+nama))
+      .catch(()=>{clearTimeout(timer);notifyCallback=prev;resolve(null);});
+  });
+}
+
+async function lihatFoto(nama) {
+  fotoModalNamaAktif=nama;
+  const modal=document.getElementById('fotoModal');
+  const img=document.getElementById('fotoModalImg');
+  const spinner=document.getElementById('fotoModalSpinner');
+  const title=document.getElementById('fotoModalNama');
+  modal.classList.remove('hidden');
+  title.textContent=nama;
+  img.style.display='none'; spinner.style.display='block';
+  if (thumbCache[nama]) {
+    img.src=thumbCache[nama]; img.style.display='block'; spinner.style.display='none'; return;
+  }
+  const b64=await downloadFotoDariSD(nama);
+  if (b64) {
+    thumbCache[nama]='data:image/jpeg;base64,'+b64;
+    img.src=thumbCache[nama]; img.style.display='block'; spinner.style.display='none';
+  } else { spinner.style.display='none'; toast('Gagal memuat foto'); }
+}
+
+function tutupFotoModal() { document.getElementById('fotoModal').classList.add('hidden'); }
+
+async function hapusFotoModal() {
+  const nama=fotoModalNamaAktif; if(!nama) return;
+  if (!confirm('Hapus foto ini?')) return;
+  await hapusFoto(nama); tutupFotoModal();
+}
+
+async function hapusFoto(nama) {
+  try {
+    const reply=await bleRequest('DEL:'+nama,3000);
+    if (reply==='OK') {
+      toast('Foto dihapus');
+      sdFotoList=sdFotoList.filter(n=>n!==nama);
+      delete thumbCache[nama]; tampilGaleri();
+    }
+  } catch(e) { toast('Gagal hapus: '+e.message); }
+}
+
+function simpanFotoModal() {
+  const img=document.getElementById('fotoModalImg');
+  const nama=fotoModalNamaAktif;
+  if (!img.src||!nama) { toast('Foto belum dimuat'); return; }
+  const isIOS=/iPhone|iPad|iPod/.test(navigator.userAgent);
+  if (isIOS) {
+    fetch(img.src).then(r=>r.blob()).then(blob=>{
+      const file=new File([blob],nama,{type:'image/jpeg'});
+      if (navigator.canShare&&navigator.canShare({files:[file]}))
+        navigator.share({files:[file],title:'ScanCornea'}).catch(()=>{});
+    });
+  } else {
+    const a=document.createElement('a');
+    a.href=img.src; a.download=nama; a.style.display='none';
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>document.body.removeChild(a),500);
+    toast('✓ Disimpan!');
+  }
+}
+
+function bagikanFotoModal() {
+  const img=document.getElementById('fotoModalImg');
+  const nama=fotoModalNamaAktif;
+  if (!img.src||!nama) return;
+  fetch(img.src).then(r=>r.blob()).then(blob=>{
+    const file=new File([blob],nama,{type:'image/jpeg'});
+    if (navigator.share) navigator.share({files:[file],title:'ScanCornea - '+nama}).catch(()=>{});
+  });
+}
+
+// ── BLE ──
+function bleRequest(cmd, timeoutMs=5000) {
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{notifyCallback=null;reject(new Error('Timeout'));},timeoutMs);
+    notifyCallback=(reply)=>{clearTimeout(timer);notifyCallback=null;resolve(reply);};
+    bleChar.writeValue(new TextEncoder().encode(cmd)).catch(reject);
+  });
+}
+
+async function handleBle() {
+  if (isConnected) {
+    try{ bleDevice&&bleDevice.gatt.disconnect(); }catch(e){}
+    return;
+  }
+  const bt=navigator.bluetooth||window.bluetooth;
+  if (!bt) { toast('Pakai Bluefy (iPhone) atau Chrome Android'); return; }
+  setBle('connecting'); toast('Mencari ESP32-Medis...');
+  try {
+    bleDevice=await bt.requestDevice({filters:[{name:'ESP32-Medis'},{services:[SERVICE_UUID]}]});
+    bleDevice.addEventListener('gattserverdisconnected',onBleDisconnect);
+    const server=await bleDevice.gatt.connect();
+    const service=await server.getPrimaryService(SERVICE_UUID);
+    bleChar=await service.getCharacteristic(CHAR_UUID);
+    bleCharTx=await service.getCharacteristic(CHAR_TX_UUID);
+    await bleCharTx.startNotifications();
+    bleCharTx.addEventListener('characteristicvaluechanged',onBleNotify);
+    isConnected=true; setBle('on',bleDevice.name);
+    toast('✓ Terhubung: '+bleDevice.name);
+  } catch(e) {
+    setBle('off');
+    const msg=e.name==='NotFoundError'?'Pencarian dibatalkan':
+               e.name==='SecurityError'?'Butuh HTTPS':'Error: '+(e.message||e.name);
+    toast(msg);
+  }
+}
+
+function onBleDisconnect() {
+  isConnected=false; bleChar=null; bleCharTx=null; ledState={B:false,W:false};
+  document.getElementById('cardBiru').classList.remove('on');
+  document.getElementById('cardPutih').classList.remove('on');
+  setBle('off'); toast('Bluetooth terputus');
+  document.getElementById('btnGaleri').classList.add('hidden');
+}
+
+function setBle(state,name) {
+  const btn=document.getElementById('btnBle');
+  const badge=document.getElementById('bleBadge');
+  const txt=document.getElementById('bleText');
+  const cB=document.getElementById('cardBiru');
+  const cW=document.getElementById('cardPutih');
   btn.classList.remove('connected','connecting');
   badge.classList.remove('on');
   if (state==='on') {
     btn.classList.add('connected'); badge.classList.add('on');
-    txt.textContent = name||'WiFi';
+    txt.textContent=name||'BLE';
     cB.classList.remove('disabled'); cW.classList.remove('disabled');
     document.getElementById('btnGaleri').classList.remove('hidden');
   } else if (state==='connecting') {
-    btn.classList.add('connecting'); txt.textContent = '...';
+    btn.classList.add('connecting'); txt.textContent='...';
     cB.classList.add('disabled'); cW.classList.add('disabled');
   } else {
-    txt.textContent = 'WiFi';
+    txt.textContent='BLE';
     cB.classList.add('disabled'); cW.classList.add('disabled');
     document.getElementById('btnGaleri').classList.add('hidden');
   }
 }
 
 async function kirimLED(cmd) {
-  if (!isConnected || !ESP32_URL) return;
-  try {
-    const [pin, val] = cmd.split(':');
-    const param  = pin==='B' ? 'b' : 'w';
-    const val255 = Math.round(parseInt(val) / 4);
-    // no-cors: bypass mixed content, tidak butuh response untuk LED
-    fetch(ESP32_URL + '/api/led?' + param + '=' + val255, {mode:'no-cors'})
-      .catch(()=>{});
-  } catch(e) {}
-}
-
-function toggleLED(w) {
-  if (!isConnected) { toast('Sambungkan WiFi ESP32 dulu'); return; }
-  ledState[w] = !ledState[w];
-  document.getElementById(w==='B'?'cardBiru':'cardPutih').classList.toggle('on', ledState[w]);
-  kirimLED(w + ':' + (ledState[w] ? 1020 : 0));
-}
-// ── WiFi ESP32 Helper ──
-async function esp32Fetch(path, opts={}) {
-  const res = await fetch(ESP32_URL + path, {
-    ...opts,
-    mode: 'cors',
-    signal: AbortSignal.timeout(8000)
-  });
-  return res;
-}
-
-// ── Kirim foto ke SD Card via BLE (chunked) ──
-async function kirimFotoKeSD(blob, namaFile) {
-  if (!isConnected || !ESP32_URL) return false;
-  toast('📤 Upload ke SD card...');
-  try {
-    const resizedBlob = await resizeTo128(blob);
-    const form = new FormData();
-    form.append('foto', resizedBlob, namaFile);
-    form.append('nama', namaFile);
-    // no-cors untuk bypass mixed content HTTPS→HTTP
-    // Upload berjalan background, tidak tunggu response
-    fetch(ESP32_URL + '/api/upload', {
-      method:'POST', body:form, mode:'no-cors'
-    }).then(() => toast('✓ Terkirim ke SD card'))
-      .catch(() => toast('Upload SD gagal'));
-    return true;
-  } catch(e) { return false; }
-}
-
-function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-// Resize gambar ke 256×256 untuk kualitas lebih baik
-function resizeTo128(blob) {
-  return new Promise(resolve => {
-    const img = new Image();
-    const url = URL.createObjectURL(blob);
-    img.onload = () => {
-      const c = document.createElement('canvas');
-      c.width = c.height = 256;
-      c.getContext('2d').drawImage(img, 0, 0, 256, 256);
-      URL.revokeObjectURL(url);
-      c.toBlob(resolve, 'image/jpeg', 0.85);
-    };
-    img.src = url;
-  });
-}
-
-// ── Galeri SD Card ──
-async function bukaGaleri() {
-  if (!isConnected) { toast('Sambungkan BLE dulu'); return; }
-  toast('Memuat daftar foto SD...');
-  galeriOpen = true;
-
-  try {
-    // Minta list foto
-    notifyCallback = null;
-    const listRaw = await bleRequest('LIST', 5000);
-    const listStr = listRaw.replace('LIST:', '');
-    sdFotoList = listStr.length > 0 ? listStr.split(',').filter(n=>n.length>0) : [];
-    tampilGaleri();
-  } catch(e) {
-    toast('Gagal muat galeri: ' + e.message);
-  }
-}
-
-// ── Cache thumbnail ──
-const thumbCache = {};
-let fotoModalNamaAktif = '';
-
-// ── Buka galeri ──
-async function bukaGaleri() {
-  if (!isConnected) { toast('Sambungkan BLE dulu'); return; }
-  const panel = document.getElementById('galeriPanel');
-  const grid  = document.getElementById('galeriGrid');
-  panel.classList.remove('hidden');
-
-  // Tampil loading
-  grid.innerHTML = `<div class="galeri-loading" style="grid-column:1/-1">
-    <div class="galeri-spinner"></div>
-    <span>Memuat dari SD card...</span>
-  </div>`;
-  document.getElementById('galeriStrip').textContent = 'Menghubungi ESP32...';
-
-  try {
-    // JSONP untuk bypass mixed content
-    let data;
-    try {
-      data = await jsonpFetch(ESP32_URL + '/api/list');
-    } catch(_) {
-      // Fallback fetch biasa (Android Chrome dengan flag)
-      const res = await fetch(ESP32_URL + '/api/list', {mode:'cors', signal:AbortSignal.timeout(6000)});
-      data = await res.json();
-    }
-    sdFotoList = Array.isArray(data) ? data.map(f => f.nama || f) : [];
-    tampilGaleri();
-  } catch(e) {
-    grid.innerHTML = '<div class="galeri-empty" style="grid-column:1/-1"><div class="galeri-empty-icon">⚠️</div><div class="galeri-empty-text">Gagal memuat</div><div class="galeri-empty-sub">' + e.message + '</div></div>';
-    document.getElementById('galeriStrip').textContent = 'Gagal terhubung ke SD card';
-  }
-}
-
-function tutupGaleri() {
-  document.getElementById('galeriPanel').classList.add('hidden');
-}
-
-// ── Tampil grid galeri ──
-function tampilGaleri() {
-  const grid = document.getElementById('galeriGrid');
-  const n = sdFotoList.length;
-  document.getElementById('galeriStrip').textContent =
-    n === 0 ? 'SD card kosong' : n + ' foto';
-
-  if (n === 0) {
-    grid.innerHTML = `<div class="galeri-empty">
-      <div class="galeri-empty-icon">📷</div>
-      <div class="galeri-empty-text">Belum ada foto</div>
-      <div class="galeri-empty-sub">Ambil foto kornea untuk mulai</div>
-    </div>`;
-    return;
-  }
-
-  grid.innerHTML = sdFotoList.map(nama => `
-    <div class="galeri-thumb" id="thumb_${CSS.escape(nama)}"
-         onclick="lihatFoto('${nama}')">
-      <div class="thumb-loading-indicator"></div>
-      <span class="thumb-label">${nama.split('_').slice(-1)[0]?.replace('.jpg','') || nama}</span>
-    </div>`).join('');
-
-  // Load thumbnail satu per satu dengan delay agar tidak overflow BLE
-  sdFotoList.forEach((nama, i) => {
-    if (!thumbCache[nama]) {
-      setTimeout(() => loadThumb(nama), i * 800);
-    } else {
-      setThumb(nama, thumbCache[nama]);
-    }
-  });
-}
-
-// Set thumbnail ke grid
-function setThumb(nama, url) {
-  const el = document.getElementById('thumb_' + CSS.escape(nama));
-  if (!el) return;
-  const label = nama.split('_').slice(-1)[0]?.replace('.jpg','') || nama;
-  el.innerHTML = `
-    <img src="${url}" alt="${nama}" class="loaded"/>
-    <span class="thumb-label">${label}</span>`;
-}
-
-// Load thumbnail dari SD
-async function loadThumb(nama) {
-  if (!isConnected) return;
-  const url = await downloadFotoDariSD(nama);
-  if (url) {
-    thumbCache[nama] = url;
-    setThumb(nama, url);
-  }
-}
-
-// Load foto dari SD - pakai URL langsung (img src tidak kena mixed content)
-function downloadFotoDariSD(nama) {
-  return new Promise((resolve) => {
-    // Browser izinkan load <img src="http://..."> dari HTTPS page
-    const img = new Image();
-    const url = ESP32_URL + '/api/foto?f=' + encodeURIComponent(nama);
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      // Convert ke canvas lalu blob URL
-      const c = document.createElement('canvas');
-      c.width = img.naturalWidth; c.height = img.naturalHeight;
-      c.getContext('2d').drawImage(img, 0, 0);
-      resolve(c.toDataURL('image/jpeg', 0.9));
-    };
-    img.onerror = () => {
-      // Fallback: return URL langsung untuk display
-      resolve(url);
-    };
-    img.src = url;
-    setTimeout(() => resolve(url), 8000); // timeout fallback
-  });
-}
-
-// ── Lihat foto fullscreen ──
-async function lihatFoto(nama) {
-  fotoModalNamaAktif = nama;
-  const modal   = document.getElementById('fotoModal');
-  const img     = document.getElementById('fotoModalImg');
-  const spinner = document.getElementById('fotoModalSpinner');
-  const title   = document.getElementById('fotoModalNama');
-
-  modal.classList.remove('hidden');
-  title.textContent = nama;
-  img.style.display = 'none';
-  spinner.style.display = 'block';
-
-  // Pakai cache kalau sudah ada
-  if (thumbCache[nama]) {
-    img.src = thumbCache[nama];
-    img.style.display = 'block';
-    spinner.style.display = 'none';
-    return;
-  }
-
-  // Download dari SD via WiFi
-  const url = await downloadFotoDariSD(nama);
-  if (url) {
-    thumbCache[nama] = url;
-    img.src = url;
-    img.style.display = 'block';
-    spinner.style.display = 'none';
-  } else {
-    spinner.style.display = 'none';
-    toast('Gagal memuat foto');
-  }
-}
-
-function tutupFotoModal() {
-  document.getElementById('fotoModal').classList.add('hidden');
-}
-
-// Hapus foto dari modal fullscreen
-async function hapusFotoModal() {
-  const nama = fotoModalNamaAktif;
-  if (!nama) return;
-  if (!confirm('Hapus foto ini?')) return;
-  await hapusFoto(nama);
-  tutupFotoModal();
-}
-
-// Simpan foto ke galeri HP
-function simpanFotoModal() {
-  const img  = document.getElementById('fotoModalImg');
-  const nama = fotoModalNamaAktif;
-  if (!img.src || !nama) { toast('Foto belum dimuat'); return; }
-
-  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-  if (isIOS) {
-    // iOS: share sheet
-    fetch(img.src).then(r => r.blob()).then(blob => {
-      const file = new File([blob], nama, {type:'image/jpeg'});
-      if (navigator.canShare && navigator.canShare({files:[file]})) {
-        navigator.share({files:[file], title:'ScanCornea'})
-          .then(() => toast('✓ Tersimpan!'))
-          .catch(e => { if(e.name!=='AbortError') toast('Gagal: '+e.message); });
-      }
-    });
-  } else {
-    // Android: download langsung
-    const a = document.createElement('a');
-    a.href = img.src; a.download = nama;
-    a.style.display = 'none';
-    document.body.appendChild(a); a.click();
-    setTimeout(() => document.body.removeChild(a), 500);
-    toast('✓ Disimpan!');
-  }
-}
-
-// Bagikan foto
-function bagikanFotoModal() {
-  const img  = document.getElementById('fotoModalImg');
-  const nama = fotoModalNamaAktif;
-  if (!img.src || !nama) { toast('Foto belum dimuat'); return; }
-  fetch(img.src).then(r => r.blob()).then(blob => {
-    const file = new File([blob], nama, {type:'image/jpeg'});
-    if (navigator.share) {
-      navigator.share({files:[file], title:'ScanCornea - '+nama})
-        .catch(e => { if(e.name!=='AbortError') toast('Gagal bagikan'); });
-    } else {
-      toast('Share tidak didukung browser ini');
-    }
-  });
-}
-
-async function hapusFoto(nama) {
-  if (!confirm('Hapus ' + nama + '?')) return;
-  try {
-    const res = await fetch(ESP32_URL + '/api/del?f=' + encodeURIComponent(nama), {
-      mode:'cors', signal:AbortSignal.timeout(5000)
-    });
-    if (res.ok) {
-      toast('Foto dihapus');
-      sdFotoList = sdFotoList.filter(n => n !== nama);
-      if (thumbCache[nama]) { URL.revokeObjectURL(thumbCache[nama]); delete thumbCache[nama]; }
-      tampilGaleri();
-    } else toast('Gagal hapus');
-  } catch(e) { toast('Gagal hapus: ' + e.message); }
-}
-
-function tutupGaleri() {
-  document.getElementById('galeriPanel').classList.add('hidden');
-  galeriOpen = false;
-}
-
-async function kirimLED(cmd) {
   if (!bleChar) return;
   try { await bleChar.writeValue(new TextEncoder().encode(cmd)); }
-  catch(e) { toast('LED gagal: ' + e.message); onBleDisconnect(); }
+  catch(e) { toast('LED gagal: '+e.message); onBleDisconnect(); }
 }
 
 function toggleLED(w) {
-  if (!isConnected) { toast('Sambungkan Bluetooth dulu'); return; }
-  ledState[w] = !ledState[w];
-  document.getElementById(w==='B'?'cardBiru':'cardPutih').classList.toggle('on', ledState[w]);
-  kirimLED(w + ':' + (ledState[w] ? 1023 : 0));
+  if (!isConnected) { toast('Sambungkan BLE dulu'); return; }
+  ledState[w]=!ledState[w];
+  document.getElementById(w==='B'?'cardBiru':'cardPutih').classList.toggle('on',ledState[w]);
+  kirimLED(w+':'+(ledState[w]?1023:0));
 }
 </script>
-<!-- ══ GALERI SD CARD ══ -->
-<div id="galeriPanel" class="hidden">
-  <!-- Status bar -->
-  <div class="galeri-statusbar">
-    <button class="galeri-back" onclick="tutupGaleri()">
-      <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 2L2 8l6 6"/></svg>
-      Kembali
-    </button>
-    <div class="galeri-title-bar">SD Card</div>
-    <button class="galeri-refresh" onclick="bukaGaleri()">↻</button>
-  </div>
-  <div class="galeri-strip" id="galeriStrip">Memuat...</div>
-  <!-- Grid foto -->
-  <div id="galeriGrid"></div>
-</div>
-
-<!-- ══ MODAL FULLSCREEN FOTO ══ -->
-<div id="fotoModal" class="hidden">
-  <div class="foto-modal-nav">
-    <button class="foto-modal-back" onclick="tutupFotoModal()">
-      <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 2L2 8l6 6"/></svg>
-      Galeri
-    </button>
-    <span class="foto-modal-name" id="fotoModalNama"></span>
-    <button class="foto-modal-del" onclick="hapusFotoModal()">Hapus</button>
-  </div>
-  <div class="foto-modal-viewer">
-    <div class="foto-modal-spinner" id="fotoModalSpinner"></div>
-    <img id="fotoModalImg" src="" alt="" style="display:none;"/>
-  </div>
-  <div class="foto-modal-bottom">
-    <button class="foto-modal-btn" onclick="simpanFotoModal()">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-        <polyline points="7 10 12 15 17 10"/>
-        <line x1="12" y1="15" x2="12" y2="3"/>
-      </svg>
-      <span>Simpan</span>
-    </button>
-    <button class="foto-modal-btn" onclick="bagikanFotoModal()">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8">
-        <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-      </svg>
-      <span>Bagikan</span>
-    </button>
-  </div>
-</div>
 </body>
 </html>
